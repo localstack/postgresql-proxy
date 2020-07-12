@@ -24,13 +24,12 @@ connection.py - parsing and composing packets, launching interceptors
 interceptors.py - intercepting for modification
 '''
 
-import config_schema as cfg
-import connection
 import logging
 import selectors
 import socket
 import types
-from interceptors import ResponseInterceptor, CommandInterceptor
+from postgresql_proxy import connection, config_schema as cfg
+from postgresql_proxy.interceptors import ResponseInterceptor, CommandInterceptor
 
 class Proxy:
     def __init__(self, instance_config, plugins):
@@ -70,7 +69,7 @@ class Proxy:
 
 
     def accept_wrapper(self, sock):
-        clientsocket, address = sock.accept()  # Should be ready to 
+        clientsocket, address = sock.accept()  # Should be ready to
         clientsocket.setblocking(False)
         self.num_clients+=1
         sock_name = '{}_{}'.format(self.instance_config.listen.name, self.num_clients)
@@ -94,7 +93,7 @@ class Proxy:
         if self.instance_config.intercept is not None and self.instance_config.intercept.responses is not None:
             pg_conn.interceptor = ResponseInterceptor(self.instance_config.intercept.responses, self.plugins, context)
             pg_conn.redirect_conn = conn
-        
+
         if self.instance_config.intercept is not None and self.instance_config.intercept.commands is not None:
             conn.interceptor = CommandInterceptor(self.instance_config.intercept.commands, self.plugins, context)
             conn.redirect_conn = pg_conn
