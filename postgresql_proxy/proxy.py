@@ -31,7 +31,9 @@ import types
 from postgresql_proxy import connection, config_schema as cfg
 from postgresql_proxy.interceptors import ResponseInterceptor, CommandInterceptor
 
-class Proxy:
+
+class Proxy(object):
+
     def __init__(self, instance_config, plugins):
         self.plugins = plugins
         self.num_clients = 0
@@ -61,7 +63,13 @@ class Proxy:
 
 
     def __register_conn(self, conn):
-        self.selector.register(conn.sock, conn.events, data=conn)
+        try:
+            self.selector.register(conn.sock, conn.events, data=conn)
+        except Exception:
+            # potentially already registered - this can happen if file descriptors
+            # are reused for new sockets -> try to unregister/re-register
+            self.selector.unregister(conn.sock)
+            self.selector.register(conn.sock, conn.events, data=conn)
 
 
     def __unregister_conn(self, conn):
