@@ -31,6 +31,8 @@ import types
 from postgresql_proxy import connection, config_schema as cfg
 from postgresql_proxy.interceptors import ResponseInterceptor, CommandInterceptor
 
+LOG = logging.getLogger(__name__)
+
 
 class Proxy(object):
 
@@ -40,7 +42,7 @@ class Proxy(object):
         self.instance_config = instance_config
         self.connections = []
         self.selector = selectors.DefaultSelector()
-
+        self.running = True
 
     def __create_pg_connection(self, address, context):
         redirect_config = self.instance_config.redirect
@@ -57,10 +59,9 @@ class Proxy(object):
                                         events  = events,
                                         context = context)
 
-        logging.info("initiated client connection to %s:%s called %s",
-                     redirect_config.host, redirect_config.port, redirect_config.name)
+        LOG.info("initiated client connection to %s:%s called %s",
+                 redirect_config.host, redirect_config.port, redirect_config.name)
         return pg_conn
-
 
     def __register_conn(self, conn):
         try:
@@ -71,17 +72,15 @@ class Proxy(object):
             self.selector.unregister(conn.sock)
             self.selector.register(conn.sock, conn.events, data=conn)
 
-
     def __unregister_conn(self, conn):
         self.selector.unregister(conn.sock)
-
 
     def accept_wrapper(self, sock):
         clientsocket, address = sock.accept()  # Should be ready to
         clientsocket.setblocking(False)
         self.num_clients+=1
         sock_name = '{}_{}'.format(self.instance_config.listen.name, self.num_clients)
-        logging.info("connection from %s, connection initiated %s", address, sock_name)
+        LOG.info("connection from %s, connection initiated %s", address, sock_name)
 
         events = selectors.EVENT_READ | selectors.EVENT_WRITE
 
@@ -109,26 +108,23 @@ class Proxy(object):
         self.__register_conn(conn)
         self.__register_conn(pg_conn)
 
-
     def service_connection(self, key, mask):
         sock = key.fileobj
         conn = key.data
         if mask & selectors.EVENT_READ:
-            logging.debug('%s can receive', conn.name)
+            LOG.debug('%s can receive', conn.name)
             recv_data = sock.recv(4096)  # Should be ready to read
             if recv_data:
-                logging.debug('%s received data:\n%s', conn.name, recv_data)
+                LOG.debug('%s received data:\n%s', conn.name, recv_data)
                 conn.received(recv_data)
             else:
-                logging.info('%s connection closing %s', conn.name, conn.address)
+                LOG.info('%s connection closing %s', conn.name, conn.address)
                 sock.close()
         if mask & selectors.EVENT_WRITE:
             if conn.out_bytes:
-                logging.debug('sending to %s:\n%s', conn.name, conn.out_bytes)
+                LOG.debug('sending to %s:\n%s', conn.name, conn.out_bytes)
                 sent = sock.send(conn.out_bytes)  # Should be ready to write
                 conn.sent(sent)
-
-
 
     def listen(self, max_connections = 8):
         '''Listen server socket. On connect launch a new thread with the client connection as an argument
@@ -136,14 +132,15 @@ class Proxy(object):
         lconf = self.instance_config.listen
         ip, port = (lconf.host, lconf.port)
         try:
-            logging.info("listening to %s:%s", ip, port)
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.sock.bind((ip, port))
             self.sock.listen(max_connections)
             self.sock.setblocking(False)
             self.selector.register(self.sock, selectors.EVENT_READ, data=None)
-            while True:
-                events = self.selector.select(timeout=None)
+            while self.running:
+                events = self.selector.select(timeout=1)
+                if not events:
+                    continue
                 hit = False
                 for key, mask in events:
                     hit = True
@@ -152,11 +149,14 @@ class Proxy(object):
                     else:
                         self.service_connection(key, mask)
         except OSError as ex:
-            logging.critical("Can't establish listener", exc_info=ex)
+            LOG.error("Can't establish PostgreSQL proxy listener on port %s" % port, exc_info=ex)
         finally:
+            LOG.info("Closing PostgreSQL proxy on port %s" % port)
             self.sock.close()
             self.sock = None
-            logging.info("closed socket")
+
+    def stop(self):
+        self.running = False
 
 
 if(__name__=='__main__'):
