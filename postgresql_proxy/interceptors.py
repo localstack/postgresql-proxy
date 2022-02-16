@@ -19,7 +19,10 @@ class Interceptor:
     @staticmethod
     def convert_encoding_to_python(encoding: str) -> str:
         encoding = encoding.lower()
-        return PG_PY_ENCODINGS.get(encoding, encoding)
+        result = PG_PY_ENCODINGS.get(encoding, encoding)
+        if not result:
+            raise Exception(f"Encoding {encoding} not supported by postgresql-proxy!")
+        return result
 
 
 class CommandInterceptor(Interceptor):
