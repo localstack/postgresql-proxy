@@ -1,4 +1,5 @@
 import logging
+from pg8000.converters import PG_PY_ENCODINGS
 
 class Interceptor:
     def __init__(self, interceptor_config, plugins, context):
@@ -12,8 +13,13 @@ class Interceptor:
     def get_codec(self):
         if self.context is not None and 'connect_params' in self.context:
             if self.context['connect_params'] is not None and 'client_encoding' in self.context['connect_params']:
-                return self.context['connect_params']['client_encoding']
+                return self.convert_encoding_to_python(self.context['connect_params']['client_encoding'])
         return 'utf-8'
+
+    @staticmethod
+    def convert_encoding_to_python(encoding: str) -> str:
+        encoding = encoding.lower()
+        return PG_PY_ENCODINGS.get(encoding, encoding)
 
 
 class CommandInterceptor(Interceptor):
