@@ -52,6 +52,7 @@ class Connection:
             logging.info("intercepting packet of type '%s' from %s", packet_type, self.name)
             body = self.interceptor.intercept(packet_type, body)
             header = packet_type + self.encode_length(len(body) + 4)
+
         message = header + body
         logging.debug("Received message. Relaying. Speaker: %s, message:\n%s", self.name, message)
         self.redirect_conn.out_bytes += message

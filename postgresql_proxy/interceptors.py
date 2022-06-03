@@ -1,6 +1,9 @@
 import logging
 from pg8000.converters import PG_PY_ENCODINGS
 
+from postgresql_proxy.constants import ALLOWED_CONNECTION_PARAMETERS
+
+
 class Interceptor:
     def __init__(self, interceptor_config, plugins, context):
         self.interceptor_config = interceptor_config
@@ -42,15 +45,16 @@ class CommandInterceptor(Interceptor):
                 params = data[-2:]
                 data = statement + query + params
             elif packet_type == b'':
-                self.__intercept_context_data(data)
+                # Connection request / context. Ignore the first 4 bytes, keep it
+                packet_start = data[0:4]
+                context_data = self.__intercept_context_data(data[4:-1])
+                data = packet_start + context_data
         return data
-
 
     def __intercept_context_data(self, data):
         # first 4 bytes and last zero byte are not interesting
-        relevant_data = data[4:-1]
         # Each entry is terminated by b'\x00'
-        entries = relevant_data.split(b'\x00')[:-1]
+        entries = data.split(b'\x00')[:-1]
         entries = dict(zip(entries[0::2], entries[1::2]))
         self.context['connect_params'] = {}
         # Try to set codec, then transcode the dict
@@ -58,8 +62,19 @@ class CommandInterceptor(Interceptor):
             self.context['connect_params']['client_encoding'] = entries[b'client_encoding'].decode('ascii')
         codec = self.get_codec()
         for k, v in entries.items():
+            key: str = k.decode(codec)
+            # don't keep parameters not allowed by postgres
+            if key.lower() not in ALLOWED_CONNECTION_PARAMETERS:
+                continue
             self.context['connect_params'][k.decode(codec)] = v.decode(codec)
 
+        context_data = b'\x00'.join(
+            [
+                key.encode(codec) + b'\x00' + value.encode(codec)
+                for key, value in self.context['connect_params'].items()
+            ]
+        )
+        return context_data + b'\x00\x00'
 
     def __intercept_query(self, query, interceptors):
         logging.getLogger('intercept').debug("intercepting query\n%s", query)
