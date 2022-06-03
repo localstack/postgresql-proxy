@@ -1,5 +1,7 @@
 import logging
 
+_logger = logging.getLogger("postgresql_proxy")
+
 class Connection:
     def __init__(self, sock, address, name, events, context):
         self.sock = sock
@@ -49,11 +51,12 @@ class Connection:
     def process_inbound_packet(self, header, body):
         if header != b'N':
             packet_type = header[0:-4]
-            logging.info("intercepting packet of type '%s' from %s", packet_type, self.name)
+            _logger.info("intercepting packet of type '%s' from %s", packet_type, self.name)
             body = self.interceptor.intercept(packet_type, body)
             header = packet_type + self.encode_length(len(body) + 4)
+
         message = header + body
-        logging.debug("Received message. Relaying. Speaker: %s, message:\n%s", self.name, message)
+        _logger.debug("Received message. Relaying. Speaker: %s, message:\n%s", self.name, message)
         self.redirect_conn.out_bytes += message
 
     def sent(self, num_bytes):
