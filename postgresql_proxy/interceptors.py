@@ -52,7 +52,6 @@ class CommandInterceptor(Interceptor):
         return data
 
     def __intercept_context_data(self, data):
-        # first 4 bytes and last zero byte are not interesting
         # Each entry is terminated by b'\x00'
         entries = data.split(b'\x00')[:-1]
         entries = dict(zip(entries[0::2], entries[1::2]))
