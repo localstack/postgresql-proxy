@@ -12,6 +12,6 @@ install:           ## Install dependencies in local virtualenv folder
 		(test ! -e requirements.txt || ($(VENV_RUN); $(PIP_CMD) install -r requirements.txt))
 
 publish:           ## Publish the library to the central PyPi repository
-	($(VENV_RUN) && python ./setup.py sdist upload)
+	($(VENV_RUN); pip install twine; python ./setup.py sdist && twine upload dist/*)
 
 .PHONY: usage install clean publish test lint
