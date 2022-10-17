@@ -1,6 +1,8 @@
 import logging
+from typing import Optional
 
 _logger = logging.getLogger("postgresql_proxy")
+
 
 class Connection:
     def __init__(self, sock, address, name, events, context):
@@ -10,7 +12,7 @@ class Connection:
         self.events = events
         self.context = context
         self.interceptor = None
-        self.redirect_conn = None
+        self.redirect_conn: Optional[Connection] = None
         self.out_bytes = b''
         self.in_bytes = b''
 

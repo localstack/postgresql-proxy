@@ -34,24 +34,24 @@ class CommandInterceptor(Interceptor):
             ic_queries = self.interceptor_config.queries
             if packet_type == b'Q':
                 # Query, ends with b'\x00'
-                data = self.__intercept_query(data, ic_queries)
+                data = self._intercept_query(data, ic_queries)
             elif packet_type == b'P':
                 # Statement that needs parsing.
                 # First byte of the body is some Statement flag. Ignore, don't lose
                 # Next is the query, same as above, ends with an b'\x00'
                 # Last 2 bytes are the number of parameters. Ignore, don't lose
                 statement = data[0:1]
-                query = self.__intercept_query(data[1:-2], ic_queries)
+                query = self._intercept_query(data[1:-2], ic_queries)
                 params = data[-2:]
                 data = statement + query + params
             elif packet_type == b'':
                 # Connection request / context. Ignore the first 4 bytes, keep it
                 packet_start = data[0:4]
-                context_data = self.__intercept_context_data(data[4:-1])
+                context_data = self._intercept_context_data(data[4:-1])
                 data = packet_start + context_data
         return data
 
-    def __intercept_context_data(self, data):
+    def _intercept_context_data(self, data):
         # Each entry is terminated by b'\x00'
         entries = data.split(b'\x00')[:-1]
         entries = dict(zip(entries[0::2], entries[1::2]))
@@ -75,7 +75,7 @@ class CommandInterceptor(Interceptor):
         )
         return context_data + b'\x00\x00'
 
-    def __intercept_query(self, query, interceptors):
+    def _intercept_query(self, query, interceptors):
         logging.getLogger('intercept').debug("intercepting query\n%s", query)
         # Remove zero byte at the end
         query = query[:-1].decode('utf-8')
