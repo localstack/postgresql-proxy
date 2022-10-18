@@ -53,3 +53,19 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
   ```
   python proxy.py
   ```
+
+### Changelog
+
+- v0.1.0
+  - Fix connection management in #4  
+  Improve the connection management of the proxy, connections lifecycle, and improves CPU usage, fix migration done with Prisma
+- v0.0.5
+  - add support to modify and ignore incoming connection parameters in #2  
+    Fixes an issue with Redshift python connector using forbidden PostgreSQL connection parameters
+  - switch to using twine for package upload in #3
+- v0.0.4
+  - Correctly map postgresql charsets to python charsets in #1
+- v0.0.3
+  - add stop() method to proxy; refactor logging
+- v0.0.2
+  - fix socket file descriptors under Linux

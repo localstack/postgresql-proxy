@@ -27,75 +27,116 @@ interceptors.py - intercepting for modification
 import logging
 import selectors
 import socket
-import types
 from postgresql_proxy import connection, config_schema as cfg
 from postgresql_proxy.interceptors import ResponseInterceptor, CommandInterceptor
 
-LOG = logging.getLogger(__name__)
+LOG = logging.getLogger("postgresql_proxy")
+
+
+class SelectorKeyProxy(selectors.SelectorKey):
+    fileobj: socket.socket
+    data: connection.Connection
+    fd: int
+    events: int
 
 
 class Proxy(object):
-
-    def __init__(self, instance_config, plugins):
+    def __init__(self, instance_config, plugins, debug=False):
         self.plugins = plugins
         self.num_clients = 0
         self.instance_config = instance_config
         self.connections = []
         self.selector = selectors.DefaultSelector()
         self.running = True
+        self.sock = None
+        # this is used to track leftover sockets
+        self._debug = debug
+        if self._debug:
+            self._registered_conn = set()
 
-    def __create_pg_connection(self, address, context):
+    def _create_pg_connection(self, address, context):
         redirect_config = self.instance_config.redirect
 
         pg_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         pg_sock.connect((redirect_config.host, redirect_config.port))
         pg_sock.setblocking(False)
 
-        events = selectors.EVENT_READ | selectors.EVENT_WRITE
-
-        pg_conn = connection.Connection(pg_sock,
-                                        name    = redirect_config.name + '_' + str(self.num_clients),
-                                        address = address,
-                                        events  = events,
-                                        context = context)
+        events = selectors.EVENT_READ
+        redirect_config_name = redirect_config.name + '_' + str(self.num_clients)
+        pg_conn = connection.Connection(
+            pg_sock,
+            name=redirect_config_name,
+            address=address,
+            events=events,
+            context=context
+        )
 
         LOG.info("initiated client connection to %s:%s called %s",
-                 redirect_config.host, redirect_config.port, redirect_config.name)
+                 redirect_config.host, redirect_config.port, redirect_config_name)
         return pg_conn
 
-    def __register_conn(self, conn):
+    def _register_conn(self, conn: connection.Connection):
         try:
             self.selector.register(conn.sock, conn.events, data=conn)
-        except Exception:
+        except Exception as e:
             # potentially already registered - this can happen if file descriptors
             # are reused for new sockets -> try to unregister/re-register
-            self.selector.unregister(conn.sock)
-            self.selector.register(conn.sock, conn.events, data=conn)
+            LOG.debug("exception while trying to register %s: %s", conn.name, e)
+            self.selector.modify(conn.sock, conn.events, data=conn)
 
-    def __unregister_conn(self, conn):
+        if self._debug:
+            self._registered_conn.add(f"{conn.name}-{conn.sock.fileno()}")
+
+    def _unregister_conn(self, conn: connection.Connection):
+        LOG.debug("closing connection %s", conn.name)
         self.selector.unregister(conn.sock)
+        if conn.name.startswith("proxy"):
+            # send Terminate to PG to not leave it hanging waiting for query
+            # the client did not disconnect properly
+            # this will cause postgres to close the socket on its side cleanly
+            try:
+                LOG.debug("try closing connection %s", conn.redirect_conn.name)
+                conn.redirect_conn.sock.send(b'X\x00\x00\x00\x04')
+                # remove reference to itself
+                conn.redirect_conn.redirect_conn = None
+            except OSError:
+                # OSError includes all socket exceptions + Connection* related exceptions
+                LOG.debug("tried closing connection %s: already closed", conn.redirect_conn.name)
 
-    def accept_wrapper(self, sock):
+        if self._debug:
+            self._registered_conn.discard(f"{conn.name}-{conn.sock.fileno()}")
+
+    def accept_wrapper(self, sock: socket.socket):
+        """
+        This method is called whenever a new client connects to the proxy. It will create a connection to postgres and
+        proxy all data between both sockets. It will add a `Connection` object to the SelectorKey, to be able to
+        store state and share data between the sockets.
+        :param sock: the client socket
+        :return:
+        """
         clientsocket, address = sock.accept()  # Should be ready to
         clientsocket.setblocking(False)
-        self.num_clients+=1
+        self.num_clients += 1
         sock_name = '{}_{}'.format(self.instance_config.listen.name, self.num_clients)
         LOG.info("connection from %s, connection initiated %s", address, sock_name)
-
-        events = selectors.EVENT_READ | selectors.EVENT_WRITE
+        events = selectors.EVENT_READ
 
         # Context dictionary, for sharing state data, connection details, which might be useful for interceptors
         context = {
             'instance_config': self.instance_config
         }
 
-        conn = connection.Connection(clientsocket,
-                                     name    = sock_name,
-                                     address = address,
-                                     events  = events,
-                                     context = context)
+        # create a Connection object, representing the relation between a proxied client to postgres
+        conn = connection.Connection(
+            clientsocket,
+            name=sock_name,
+            address=address,
+            events=events,
+            context=context
+        )
 
-        pg_conn = self.__create_pg_connection(address, context)
+        # create the connection to Postgres
+        pg_conn = self._create_pg_connection(address, context)
 
         if self.instance_config.intercept is not None and self.instance_config.intercept.responses is not None:
             pg_conn.interceptor = ResponseInterceptor(self.instance_config.intercept.responses, self.plugins, context)
@@ -105,30 +146,58 @@ class Proxy(object):
             conn.interceptor = CommandInterceptor(self.instance_config.intercept.commands, self.plugins, context)
             conn.redirect_conn = pg_conn
 
-        self.__register_conn(conn)
-        self.__register_conn(pg_conn)
+        # Register both connections to be watched by the selector
+        self._register_conn(conn)
+        self._register_conn(pg_conn)
 
-    def service_connection(self, key, mask):
+    def service_connection(self, key: SelectorKeyProxy, mask):
+        """
+        This method proxies the messages between socket. It will use properties of the Connection object to
+        intercept and decode messages, modifies if needed, then send the message to the redirect_conn once it is
+        fully built.
+        :param key: SelectorKeyProxy, containing the socket and the Connection object
+        :param mask: mask of event, indicating what the socket is ready for
+        :return:
+        """
         sock = key.fileobj
         conn = key.data
         if mask & selectors.EVENT_READ:
             LOG.debug('%s can receive', conn.name)
-            recv_data = sock.recv(4096)  # Should be ready to read
-            if recv_data:
-                LOG.debug('%s received data:\n%s', conn.name, recv_data)
-                conn.received(recv_data)
-            else:
-                LOG.info('%s connection closing %s', conn.name, conn.address)
-                sock.close()
-        if mask & selectors.EVENT_WRITE:
-            if conn.out_bytes:
-                LOG.debug('sending to %s:\n%s', conn.name, conn.out_bytes)
-                sent = sock.send(conn.out_bytes)  # Should be ready to write
-                conn.sent(sent)
+            try:
+                recv_data = sock.recv(4096)  # Should be ready to read
+                if recv_data:
+                    LOG.debug('%s received data:\n%s', conn.name, recv_data)
+                    conn.received(recv_data)
+                else:
+                    self._unregister_conn(conn)
+                    LOG.debug('%s connection closing %s', conn.name, conn.address)
+                    # A file object shall be unregistered prior to being closed.
+                    sock.close()
+            except OSError as e:
+                # it means the socket was closed by peer
+                LOG.debug('%s connection closed by peer %s: %s', conn.name, conn.address, e)
+                self._unregister_conn(conn)
 
-    def listen(self, max_connections = 8):
-        '''Listen server socket. On connect launch a new thread with the client connection as an argument
-        '''
+        next_conn = conn.redirect_conn
+        if next_conn and next_conn.out_bytes:
+            try:
+                LOG.debug('sending to %s:\n%s', next_conn.name, next_conn.out_bytes)
+                sent = next_conn.sock.send(next_conn.out_bytes)
+                next_conn.sent(sent)
+            except OSError:
+                # If one side is closed, close the other one
+                # this can happen in the case where the client disconnects, and postgres still return a response
+                # we then read the response then close the PG side of the socket.
+                LOG.debug('error sending to %s: connection closed', next_conn.name)
+                self._unregister_conn(conn)
+                sock.close()
+
+    def listen(self, max_connections: int = 8):
+        """
+        Listen server socket. On connect, launch a selector polling for socket readiness to listen
+        :param max_connections:
+        :return:
+        """
         lconf = self.instance_config.listen
         ip, port = (lconf.host, lconf.port)
         try:
@@ -140,18 +209,40 @@ class Proxy(object):
             while self.running:
                 events = self.selector.select(timeout=1)
                 if not events:
+                    LOG.debug("polling selector...")
                     continue
-                hit = False
+
                 for key, mask in events:
-                    hit = True
+                    key: SelectorKeyProxy
                     if key.data is None:
+                        # if the data object has not been set, it means the socket has not yet been accepted
                         self.accept_wrapper(key.fileobj)
                     else:
+                        # manage the already proxied connections
                         self.service_connection(key, mask)
+
         except OSError as ex:
             LOG.error("Can't establish PostgreSQL proxy listener on port %s" % port, exc_info=ex)
+        except Exception:
+            LOG.exception("PostgreSQL proxy quit unexpectedly:")
         finally:
             LOG.info("Closing PostgreSQL proxy on port %s" % port)
+            self.selector.unregister(self.sock)
+            # this cleans up in case any connection was still opened
+            # it should not happen anymore
+            if self._debug:
+                LOG.debug("Registered connections dangling: %s", self._registered_conn)
+            registered_selector_sockets = [skey for i, skey in self.selector.get_map().items()]
+            for selector_key in registered_selector_sockets:
+                LOG.debug("Connection left: %s", selector_key)
+                selector_key: SelectorKeyProxy
+                try:
+                    self.selector.unregister(selector_key.fileobj)
+                    selector_key.fileobj.close()
+                except OSError:
+                    continue
+
+            self.selector.close()
             self.sock.close()
             self.sock = None
 
@@ -159,8 +250,10 @@ class Proxy(object):
         self.running = False
 
 
-if(__name__=='__main__'):
-    import importlib, yaml, os
+if __name__ == '__main__':
+    import importlib
+    import yaml
+    import os
 
     path = os.path.dirname(os.path.realpath(__file__))
     config = None
