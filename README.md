@@ -57,14 +57,14 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
 ### Changelog
 
 - v0.1.0
-  - Fix connection management in #4  
+  - Fix connection management in [#4](https://github.com/localstack/postgresql-proxy/pull/4)  
   Improve the connection management of the proxy, connections lifecycle, and improves CPU usage, fix migration done with Prisma
 - v0.0.5
-  - add support to modify and ignore incoming connection parameters in #2  
+  - add support to modify and ignore incoming connection parameters in [#2](https://github.com/localstack/postgresql-proxy/pull/2)  
     Fixes an issue with Redshift python connector using forbidden PostgreSQL connection parameters
-  - switch to using twine for package upload in #3
+  - switch to using twine for package upload in [#3](https://github.com/localstack/postgresql-proxy/pull/3)
 - v0.0.4
-  - Correctly map postgresql charsets to python charsets in #1
+  - Correctly map postgresql charsets to python charsets in [#1](https://github.com/localstack/postgresql-proxy/pull/1)
 - v0.0.3
   - add stop() method to proxy; refactor logging
 - v0.0.2
