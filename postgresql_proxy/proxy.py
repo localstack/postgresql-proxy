@@ -90,7 +90,7 @@ class Proxy(object):
     def _unregister_conn(self, conn: connection.Connection):
         LOG.debug("closing connection %s", conn.name)
         self.selector.unregister(conn.sock)
-        if conn.name.startswith("proxy"):
+        if conn.name.startswith("proxy") and not conn.terminated:
             # send Terminate to PG to not leave it hanging waiting for query
             # the client did not disconnect properly
             # this will cause postgres to close the socket on its side cleanly
