@@ -106,5 +106,8 @@ venv.bak/
 # visual studio code settings
 .vscode
 
+# pycharm settings
+.idea
+
 # private config information
 config.yml

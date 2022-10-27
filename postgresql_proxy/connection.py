@@ -15,6 +15,7 @@ class Connection:
         self.redirect_conn: Optional[Connection] = None
         self.out_bytes = b''
         self.in_bytes = b''
+        self.terminated = False
 
     def parse_length(self, length_bytes):
         return int.from_bytes(length_bytes, 'big')
@@ -56,6 +57,10 @@ class Connection:
             _logger.info("intercepting packet of type '%s' from %s", packet_type, self.name)
             body = self.interceptor.intercept(packet_type, body)
             header = packet_type + self.encode_length(len(body) + 4)
+            if packet_type == b'X':
+                # this a termination packet, it will indicate that the proxied client wants to close the
+                # postgres connection properly
+                self.terminated = True
 
         message = header + body
         _logger.debug("Received message. Relaying. Speaker: %s, message:\n%s", self.name, message)

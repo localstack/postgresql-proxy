@@ -56,6 +56,8 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
 
 ### Changelog
 
+- v0.1.1
+  - Fix connection termination in [#5](https://github.com/localstack/postgresql-proxy/pull/5)
 - v0.1.0
   - Fix connection management in [#4](https://github.com/localstack/postgresql-proxy/pull/4)  
   Improve the connection management of the proxy, connections lifecycle, and improves CPU usage, fix migration done with Prisma
