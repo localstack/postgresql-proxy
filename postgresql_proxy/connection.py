@@ -64,7 +64,10 @@ class Connection:
 
         message = header + body
         _logger.debug("Received message. Relaying. Speaker: %s, message:\n%s", self.name, message)
-        self.redirect_conn.out_bytes += message
+
+        if self.redirect_conn:
+            # redirect_conn might not be set (anymore) at this stage
+            self.redirect_conn.out_bytes += message
 
     def sent(self, num_bytes):
         self.out_bytes = self.out_bytes[num_bytes:]
