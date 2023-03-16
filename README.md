@@ -56,6 +56,8 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
 
 ### Changelog
 
+- v0.1.2
+  - Fix error in process_inbound_packet [#6](https://github.com/localstack/postgresql-proxy/pull/6)
 - v0.1.1
   - Fix connection termination in [#5](https://github.com/localstack/postgresql-proxy/pull/5)
 - v0.1.0
