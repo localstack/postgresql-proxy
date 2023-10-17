@@ -3,9 +3,6 @@ import logging
 ''' This class is used to validate the config
 '''
 class Schema:
-    def __init__(self):
-        pass
-
     def _validate(self):
         pass
 
@@ -66,6 +63,17 @@ class InterceptCommandSettings(Schema):
         })
 
 
+class InterceptResponseSettings(Schema):
+    def __init__(self, data):
+        self.parameter_responses = []
+        self.connects = None
+
+        self._populate(data, {
+            'parameter_status': [InterceptQuerySettings],
+            'connects': str
+        })
+
+
 class InterceptSettings(Schema):
     def __init__(self, data):
         self.commands = None
@@ -73,7 +81,7 @@ class InterceptSettings(Schema):
 
         self._populate(data, {
             'commands': InterceptCommandSettings,
-            'responses': str
+            'responses': InterceptResponseSettings,
         })
 
 
