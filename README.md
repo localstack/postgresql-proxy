@@ -56,6 +56,8 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
 
 ### Changelog
 
+- v0.2.0
+  - Add support for intercepting [ParameterStatus](https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PARAMETERSTATUS) responses from Postgres [#7](https://github.com/localstack/postgresql-proxy/pull/7)
 - v0.1.2
   - Fix error in process_inbound_packet [#6](https://github.com/localstack/postgresql-proxy/pull/6)
 - v0.1.1

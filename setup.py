@@ -10,7 +10,7 @@ if __name__ == '__main__':
 
     setup(
         name='postgresql-proxy',
-        version='0.1.2',
+        version='0.2.0',
         description='Postgresql Proxy',
         packages=find_packages(exclude=('tests', 'tests.*')),
         install_requires=install_requires,

@@ -13,6 +13,19 @@ class Interceptor:
     def intercept(self, packet_type, data):
         return data
 
+    def _get_plugin_interceptor_function(self, interceptor):
+        if plugin := self.plugins.get(interceptor.plugin):
+            if func := getattr(plugin, interceptor.function, None):
+                return func
+
+            else:
+                raise Exception("Can't find function {} in plugin {}".format(
+                    interceptor.function,
+                    interceptor.plugin
+                ))
+        else:
+            raise Exception("Plugin {} not loaded".format(interceptor.plugin))
+
     def get_codec(self):
         if self.context is not None and 'connect_params' in self.context:
             if self.context['connect_params'] is not None and 'client_encoding' in self.context['connect_params']:
@@ -44,11 +57,13 @@ class CommandInterceptor(Interceptor):
                 query = self._intercept_query(data[1:-2], ic_queries)
                 params = data[-2:]
                 data = statement + query + params
-            elif packet_type == b'':
-                # Connection request / context. Ignore the first 4 bytes, keep it
-                packet_start = data[0:4]
-                context_data = self._intercept_context_data(data[4:-1])
-                data = packet_start + context_data
+
+        if packet_type == b'':
+            # Connection request / context. Ignore the first 4 bytes, keep it
+            packet_start = data[0:4]
+            context_data = self._intercept_context_data(data[4:-1])
+            data = packet_start + context_data
+
         return data
 
     def _intercept_context_data(self, data):
@@ -80,26 +95,41 @@ class CommandInterceptor(Interceptor):
         # Remove zero byte at the end
         query = query[:-1].decode('utf-8')
         for interceptor in interceptors:
-            if interceptor.plugin in self.plugins:
-                plugin = self.plugins[interceptor.plugin]
-                if hasattr(plugin, interceptor.function):
-                    func = getattr(plugin, interceptor.function)
-                    query = func(query, self.context)
-                    logging.getLogger('intercept').debug(
-                        "modifying query using interceptor %s.%s\n%s",
-                        interceptor.plugin,
-                        interceptor.function,
-                        query)
-                else:
-                    raise Exception("Can't find function {} in plugin {}".format(
-                        interceptor.function,
-                        interceptor.plugin
-                    ))
-            else:
-                raise Exception("Plugin {} not loaded".format(interceptor.plugin))
+            func = self._get_plugin_interceptor_function(interceptor)
+            query = func(query, self.context)
+            logging.getLogger('intercept').debug(
+                "modifying query using interceptor %s.%s\n%s",
+                interceptor.plugin,
+                interceptor.function,
+                query)
+
         # Append the zero byte at the end
         return query.encode('utf-8') + b'\x00'
 
 
 class ResponseInterceptor(Interceptor):
-    pass
+    def intercept(self, packet_type, data):
+        if (ic_param_status := self.interceptor_config.parameter_status) is not None:
+            if packet_type == b'S':
+                # ParameterStatus, see https://www.postgresql.org/docs/current/protocol-message-formats.html#PROTOCOL-MESSAGE-FORMATS-PARAMETERSTATUS
+                data = self._intercept_parameter_status(data, ic_param_status)
+
+        return data
+
+    def _intercept_parameter_status(self, data, interceptors):
+        pos: int = data.find(b"\x00")
+        key, value = data[:pos], data[pos + 1 : -1]
+        key, value = key.decode("ascii"), value.decode("ascii")
+        for interceptor in interceptors:
+            func = self._get_plugin_interceptor_function(interceptor)
+            key, value = func(key, value, self.context)
+            logging.getLogger('intercept').debug(
+                "modifying parameter status using interceptor %s.%s\nkey=%s value=%s",
+                interceptor.plugin,
+                interceptor.function,
+                key,
+                value,
+            )
+
+        data = key.encode("ascii") + b"\x00" + value.encode("ascii") + b"\x00"
+        return data
