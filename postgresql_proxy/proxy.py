@@ -181,9 +181,10 @@ class Proxy(object):
         next_conn = conn.redirect_conn
         if next_conn and next_conn.out_bytes:
             try:
-                LOG.debug('sending to %s:\n%s', next_conn.name, next_conn.out_bytes)
-                sent = next_conn.sock.send(next_conn.out_bytes)
-                next_conn.sent(sent)
+                while next_conn.out_bytes:
+                    LOG.debug('sending to %s:\n%s', next_conn.name, next_conn.out_bytes)
+                    sent = next_conn.sock.send(next_conn.out_bytes)
+                    next_conn.sent(sent)
             except OSError:
                 # If one side is closed, close the other one
                 # this can happen in the case where the client disconnects, and postgres still return a response
