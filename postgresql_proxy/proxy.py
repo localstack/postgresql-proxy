@@ -27,6 +27,7 @@ interceptors.py - intercepting for modification
 import logging
 import selectors
 import socket
+import ssl
 from postgresql_proxy import connection, config_schema as cfg
 from postgresql_proxy.interceptors import ResponseInterceptor, CommandInterceptor
 
@@ -123,7 +124,7 @@ class Proxy(object):
             # Check if SSL is enabled for this proxy
             if self.ssl_context:
                 # Handle SSL negotiation - must happen before setblocking(False)
-                clientsocket = _handle_ssl_negotiation(clientsocket, self.ssl_context)
+                clientsocket = self._handle_ssl_negotiation(clientsocket, self.ssl_context)
 
             clientsocket.setblocking(False)
             self.num_clients += 1
@@ -132,13 +133,13 @@ class Proxy(object):
                 "Connection from %s, connection initiated %s (SSL: %s)",
                 address,
                 sock_name,
-                ssl_context is not None,
+                self.ssl_context is not None,
             )
 
             events = selectors.EVENT_READ
             context = {"instance_config": self.instance_config}
 
-            conn = pg_connection.Connection(
+            conn = connection.Connection(
                 clientsocket,
                 name=sock_name,
                 address=address,
@@ -175,7 +176,7 @@ class Proxy(object):
             LOG.warning("Error accepting connection in Postgres proxy: %s", e)
 
     def _handle_ssl_negotiation(
-        client_socket: socket.socket, ssl_context: ssl.SSLContext
+        self, client_socket: socket.socket, ssl_context: ssl.SSLContext
     ) -> socket.socket:
         """
         Handle PostgreSQL SSL negotiation on an accepted socket.
