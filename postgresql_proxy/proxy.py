@@ -24,10 +24,14 @@ connection.py - parsing and composing packets, launching interceptors
 interceptors.py - intercepting for modification
 '''
 
+from __future__ import annotations
+
 import logging
 import selectors
 import socket
 import ssl
+from types import ModuleType
+
 from postgresql_proxy import connection, config_schema as cfg
 from postgresql_proxy.interceptors import ResponseInterceptor, CommandInterceptor
 
@@ -42,7 +46,13 @@ class SelectorKeyProxy(selectors.SelectorKey):
 
 
 class Proxy(object):
-    def __init__(self, instance_config, plugins, debug=False, ssl_context=None):
+    def __init__(
+        self,
+        instance_config: cfg.InstanceSettings,
+        plugins: dict[str, ModuleType],
+        debug: bool = False,
+        ssl_context: ssl.SSLContext | None = None,
+    ) -> None:
         self.plugins = plugins
         self.num_clients = 0
         self.instance_config = instance_config
@@ -117,63 +127,58 @@ class Proxy(object):
         :param sock: the client socket
         :return:
         """
-        try:
-            # Accept the raw connection
-            clientsocket, address = sock.accept()
 
-            # Check if SSL is enabled for this proxy
-            if self.ssl_context:
-                # Handle SSL negotiation - must happen before setblocking(False)
-                clientsocket = self._handle_ssl_negotiation(clientsocket, self.ssl_context)
+        # Accept the raw connection
+        clientsocket, address = sock.accept()
 
-            clientsocket.setblocking(False)
-            self.num_clients += 1
-            sock_name = f"{self.instance_config.listen.name}_{self.num_clients}"
-            LOG.info(
-                "Connection from %s, connection initiated %s (SSL: %s)",
-                address,
-                sock_name,
-                self.ssl_context is not None,
+        # Check if SSL is enabled for this proxy
+        if self.ssl_context:
+            # Handle SSL negotiation - must happen before setblocking(False)
+            clientsocket = self._handle_ssl_negotiation(clientsocket, self.ssl_context)
+
+        clientsocket.setblocking(False)
+        self.num_clients += 1
+        sock_name = f"{self.instance_config.listen.name}_{self.num_clients}"
+        LOG.info(
+            "Connection from %s, connection initiated %s (SSL: %s)",
+            address,
+            sock_name,
+            self.ssl_context is not None,
+        )
+
+        events = selectors.EVENT_READ
+        context = {"instance_config": self.instance_config}
+
+        conn = connection.Connection(
+            clientsocket,
+            name=sock_name,
+            address=address,
+            events=events,
+            context=context,
+        )
+
+        pg_conn = self._create_pg_connection(address, context)
+
+        if (
+            self.instance_config.intercept is not None
+            and self.instance_config.intercept.responses is not None
+        ):
+            pg_conn.interceptor = ResponseInterceptor(
+                self.instance_config.intercept.responses, self.plugins, context
             )
+            pg_conn.redirect_conn = conn
 
-            events = selectors.EVENT_READ
-            context = {"instance_config": self.instance_config}
-
-            conn = connection.Connection(
-                clientsocket,
-                name=sock_name,
-                address=address,
-                events=events,
-                context=context,
+        if (
+            self.instance_config.intercept is not None
+            and self.instance_config.intercept.commands is not None
+        ):
+            conn.interceptor = CommandInterceptor(
+                self.instance_config.intercept.commands, self.plugins, context
             )
+            conn.redirect_conn = pg_conn
 
-            pg_conn = self._create_pg_connection(address, context)
-
-            if (
-                self.instance_config.intercept is not None
-                and self.instance_config.intercept.responses is not None
-            ):
-                pg_conn.interceptor = ResponseInterceptor(
-                    self.instance_config.intercept.responses, self.plugins, context
-                )
-                pg_conn.redirect_conn = conn
-
-            if (
-                self.instance_config.intercept is not None
-                and self.instance_config.intercept.commands is not None
-            ):
-                conn.interceptor = CommandInterceptor(
-                    self.instance_config.intercept.commands, self.plugins, context
-                )
-                conn.redirect_conn = pg_conn
-
-            self._register_conn(conn)
-            self._register_conn(pg_conn)
-
-        except ConnectionRefusedError:
-            LOG.debug("Connection refused in Postgres proxy server - instance not (yet) available")
-        except Exception as e:
-            LOG.warning("Error accepting connection in Postgres proxy: %s", e)
+        self._register_conn(conn)
+        self._register_conn(pg_conn)
 
     def _handle_ssl_negotiation(
         self, client_socket: socket.socket, ssl_context: ssl.SSLContext
@@ -189,32 +194,27 @@ class Proxy(object):
 
         Returns the SSL-wrapped socket if negotiation succeeds, or the original socket.
         """
-        try:
-            # Peek at the first 8 bytes to check for SSLRequest
-            # Using MSG_PEEK so we don't consume the data if it's not SSLRequest
-            client_socket.setblocking(True)
-            data = client_socket.recv(8, socket.MSG_PEEK)
 
-            if len(data) == 8:
-                length = int.from_bytes(data[:4], "big")
-                code = int.from_bytes(data[4:8], "big")
+        # Peek at the first 8 bytes to check for SSLRequest
+        # Using MSG_PEEK so we don't consume the data if it's not SSLRequest
+        data = client_socket.recv(8, socket.MSG_PEEK)
 
-                if length == 8 and code == 80877103:  # SSLRequest code
-                    # Consume the SSLRequest
-                    client_socket.recv(8)
-                    # Send 'S' to indicate SSL is supported
-                    client_socket.send(b"S")
-                    # Wrap socket with SSL
-                    ssl_socket = ssl_context.wrap_socket(client_socket, server_side=True)
-                    LOG.debug("SSL handshake completed for PostgreSQL connection")
-                    return ssl_socket
+        if len(data) == 8:
+            length = int.from_bytes(data[:4], "big")
+            code = int.from_bytes(data[4:8], "big")
 
-            # Not an SSLRequest, return original socket
-            return client_socket
+            if length == 8 and code == 80877103:  # SSLRequest code
+                # Consume the SSLRequest
+                client_socket.recv(8)
+                # Send 'S' to indicate SSL is supported
+                client_socket.send(b"S")
+                # Wrap socket with SSL
+                ssl_socket = ssl_context.wrap_socket(client_socket, server_side=True)
+                LOG.debug("SSL handshake completed for PostgreSQL connection")
+                return ssl_socket
 
-        except Exception as e:
-            LOG.debug("Error during PostgreSQL SSL negotiation: %s", e)
-            return client_socket
+        # Not an SSLRequest, return original socket
+        return client_socket
 
     def service_connection(self, key: SelectorKeyProxy, mask):
         """
