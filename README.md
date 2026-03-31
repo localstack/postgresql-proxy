@@ -55,7 +55,8 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
   ```
 
 ### Changelog
-
+- v0.3.0
+  - Add support for SSL connections [#9](https://github.com/localstack/postgresql-proxy/pull/9)
 - v0.2.1
   - Fix partial send of outbound packets [#8](https://github.com/localstack/postgresql-proxy/pull/8)
 - v0.2.0
