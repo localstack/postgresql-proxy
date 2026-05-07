@@ -130,6 +130,9 @@ class Proxy(object):
 
         # Accept the raw connection
         clientsocket, address = sock.accept()
+        # On macOS, accepted sockets inherit O_NONBLOCK from the listening socket.
+        # SSL negotiation uses blocking recv, so we must set blocking explicitly here.
+        clientsocket.setblocking(True)
 
         # Check if SSL is enabled for this proxy
         if self.ssl_context:
@@ -234,6 +237,15 @@ class Proxy(object):
                 if recv_data:
                     LOG.debug('%s received data:\n%s', conn.name, recv_data)
                     conn.received(recv_data)
+                    # excerpt from https://docs.python.org/3/library/ssl.html#ssl-nonblocking
+                    # Conversely, since the SSL layer has its own framing, a SSL socket may still have data available
+                    # for reading without select() being aware of it. Therefore, you should first call SSLSocket.recv()
+                    # to drain any potentially available data, and then only block on a select() call if still necessary.
+                    while isinstance(sock, ssl.SSLSocket) and sock.pending() > 0:
+                        extra = sock.recv(4096)
+                        if extra:
+                            LOG.debug('%s received pending SSL data:\n%s', conn.name, extra)
+                            conn.received(extra)
                 else:
                     self._unregister_conn(conn)
                     LOG.debug('%s connection closing %s', conn.name, conn.address)
