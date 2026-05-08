@@ -81,3 +81,38 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
   - add stop() method to proxy; refactor logging
 - v0.0.2
   - fix socket file descriptors under Linux
+
+
+
+## Testing
+
+CI runs tests on Python `3.13`, so use Python `3.13` locally for parity.
+
+Run the full local test suite (starts a disposable PostgreSQL container automatically):
+
+```bash
+make test
+```
+
+Run the GitHub Actions test workflow locally with [`act`](https://github.com/nektos/act):
+
+On macOS, install `act` with Homebrew:
+
+```bash
+brew install act
+```
+
+```bash
+make test-act
+```
+
+Useful overrides for local runs:
+
+```bash
+# Refresh images explicitly when needed
+make test-act ACT_PULL=true
+
+# Match GitHub runner architecture on Apple Silicon (slower)
+make test-act ACT_CONTAINER_ARCH=linux/amd64
+```
+
