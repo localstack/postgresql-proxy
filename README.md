@@ -81,3 +81,11 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
   - add stop() method to proxy; refactor logging
 - v0.0.2
   - fix socket file descriptors under Linux
+
+## Testing
+
+Run the full local test suite (starts a disposable PostgreSQL container automatically):
+
+```bash
+make test
+```
