@@ -78,4 +78,13 @@ start-pg-and-test: ## Start local PostgreSQL container, run all tests, and clean
 	$(MAKE) stop-postgres; \
 	exit $$status
 
-.PHONY: usage install install-test install-lint clean publish lint start-postgres stop-postgres test start-pg-and-test
+ACT_CMD ?= act
+ACT_WORKFLOW ?= .github/workflows/tests.yml
+ACT_JOB ?= tests
+ACT_PULL ?= false
+ACT_CONTAINER_ARCH ?= linux/arm64
+
+test-act:          ## Run the CI test workflow locally with act
+	$(ACT_CMD) -W $(ACT_WORKFLOW) -j $(ACT_JOB) --pull=$(ACT_PULL) --container-architecture $(ACT_CONTAINER_ARCH)
+
+.PHONY: usage install install-test install-lint clean publish lint start-postgres stop-postgres test test-act start-pg-and-test
