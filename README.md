@@ -55,6 +55,9 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
   ```
 
 ### Changelog
+- v0.3.1
+  - Fix SSL COPY stalls by draining pending SSL buffer after recv [#11](https://github.com/localstack/postgresql-proxy/pull/11)
+  - Fix intermittent `BlockingIOError` on macOS during SSL negotiation
 - v0.3.0
   - Add support for SSL connections [#9](https://github.com/localstack/postgresql-proxy/pull/9)
 - v0.2.1
