@@ -3,8 +3,8 @@ VENV_DIR ?= .venv
 VENV_RUN = . $(VENV_DIR)/bin/activate
 PIP_CMD ?= pip
 PYTHON_CMD ?= python
-TEST_DEPS ?= pytest pytest-timeout
-LINT_DEPS ?= ruff
+TEST_REQS ?= requirements-test.txt
+LINT_REQS ?= requirements-lint.txt
 
 PG_TEST_CONTAINER ?= pg-proxy-local-tests
 PG_TEST_IMAGE ?= postgres:16
@@ -26,10 +26,10 @@ publish:           ## Publish the library to the central PyPi repository
 	($(VENV_RUN); pip install twine; python ./setup.py sdist && twine upload dist/*)
 
 install-test: install ## Install test dependencies in local virtualenv
-	($(VENV_RUN); $(PIP_CMD) install $(TEST_DEPS))
+	($(VENV_RUN); $(PIP_CMD) install -r $(TEST_REQS))
 
 install-lint: install ## Install lint dependencies in local virtualenv
-	($(VENV_RUN); $(PIP_CMD) install $(LINT_DEPS))
+	($(VENV_RUN); $(PIP_CMD) install -r $(LINT_REQS))
 
 lint: install-lint ## Format code with ruff
 	$(VENV_DIR)/bin/ruff format postgresql_proxy tests plugins

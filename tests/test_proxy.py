@@ -15,8 +15,6 @@ from postgresql_proxy import config_schema as cfg
 from postgresql_proxy.proxy import Proxy
 
 
-
-
 def _get_free_tcp_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -233,12 +231,11 @@ def test_psql_ssl_file_batch_stress_no_hang(postgres_settings, ssl_proxy_port):
     if shutil.which("psql") is None:
         pytest.fail("psql is required for this test but was not found in PATH")
 
-    sql_file_path = None
-    try:
+    with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=True) as tmp_file:
         sql_content = _build_dump_like_sql(table_count=24, rows_per_table=300)
-        with tempfile.NamedTemporaryFile("w", suffix=".sql", delete=False) as tmp_file:
-            tmp_file.write(sql_content)
-            sql_file_path = tmp_file.name
+        tmp_file.write(sql_content)
+        tmp_file.flush()
+        sql_file_path = tmp_file.name
 
         for run_idx in range(3):
             started = time.time()
@@ -261,7 +258,7 @@ def test_psql_ssl_file_batch_stress_no_hang(postgres_settings, ssl_proxy_port):
                 err_tail = "\n".join((result.stderr or "").splitlines()[-20:])
                 pytest.fail(
                     "psql -f batch failed over SSL via proxy "
-                    f"(run={run_idx + 1}, rc={result.returncode}, elapsed={elapsed:.2f}s) "
+                    f"(run={run_idx + 1}, rc={result.returncode}, {elapsed=:.2f}s) "
                     f"stdout_tail={out_tail} stderr_tail={err_tail}"
                 )
 
@@ -269,8 +266,5 @@ def test_psql_ssl_file_batch_stress_no_hang(postgres_settings, ssl_proxy_port):
                 out_tail = "\n".join((result.stdout or "").splitlines()[-20:])
                 pytest.fail(
                     "psql -f batch succeeded but expected marker missing "
-                    f"(run={run_idx + 1}, elapsed={elapsed:.2f}s) stdout_tail={out_tail}"
+                    f"(run={run_idx + 1}, {elapsed=:.2f}s) stdout_tail={out_tail}"
                 )
-    finally:
-        if sql_file_path and os.path.exists(sql_file_path):
-            os.unlink(sql_file_path)

@@ -30,4 +30,3 @@ def ensure_postgres_available(postgres_settings):
         pytest.fail(
             f"PostgreSQL backend is required for tests but is not reachable: {err}"
         )
-
