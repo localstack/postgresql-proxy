@@ -71,6 +71,7 @@ class Proxy(object):
         redirect_config = self.instance_config.redirect
 
         pg_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        pg_sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         pg_sock.connect((redirect_config.host, redirect_config.port))
         pg_sock.setblocking(False)
 
@@ -130,6 +131,7 @@ class Proxy(object):
 
         # Accept the raw connection
         clientsocket, address = sock.accept()
+        clientsocket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         # On macOS, accepted sockets inherit O_NONBLOCK from the listening socket.
         # SSL negotiation uses blocking recv, so we must set blocking explicitly here.
         clientsocket.setblocking(True)
