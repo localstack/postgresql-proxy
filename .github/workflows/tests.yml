@@ -12,13 +12,15 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
         ports:
           - 5432:5432
+        # The official postgres image does not expose a default Docker HEALTHCHECK,
+        # so we define one explicitly for the GitHub Actions service container.
         options: >-
           --health-cmd "pg_isready -U postgres"
           --health-interval 10s
@@ -44,11 +46,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-timeout
+          make install-test
 
       - name: Run tests
         run: |
-          python -m pytest -vv
-
+          make test

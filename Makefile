@@ -7,7 +7,7 @@ TEST_REQS ?= requirements-test.txt
 LINT_REQS ?= requirements-lint.txt
 
 PG_TEST_CONTAINER ?= pg-proxy-local-tests
-PG_TEST_IMAGE ?= postgres:16
+PG_TEST_IMAGE ?= postgres:18
 PG_TEST_PORT ?= 55432
 PG_TEST_USER ?= postgres
 PG_TEST_PASSWORD ?= postgres
@@ -17,7 +17,7 @@ usage:             ## Show this help
 	@fgrep -h "##" $(MAKEFILE_LIST) | fgrep -v fgrep | sed -e 's/\\$$//' | sed -e 's/##//'
 
 install:           ## Install dependencies in local virtualenv folder
-	(test `which virtualenv` || $(PIP_CMD) install --user virtualenv) && \
+	(test `which virtualenv` || $(PIP_CMD) install virtualenv) && \
 		(test -e $(VENV_DIR) || virtualenv $(VENV_OPTS) $(VENV_DIR)) && \
 		($(VENV_RUN) && $(PIP_CMD) install --upgrade pip) && \
 		(test ! -e requirements.txt || ($(VENV_RUN); $(PIP_CMD) install -r requirements.txt))
