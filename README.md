@@ -111,22 +111,23 @@ make install-test
 
 ### Which command should I use?
 
-- Fastest full local run with disposable Postgres: `make test`
+- One-command full local run with disposable Postgres: `make start-pg-and-test`
+- Run full suite against an already running Postgres: `make test`
 - Run only proxy tests (using your own Postgres): `python -m pytest tests/test_proxy.py -vv`
 - Run only plugin tests: `python -m pytest tests/test_plugins.py -vv`
 
 #### 1) Full local suite (recommended)
 
-`make test` starts a temporary PostgreSQL container, waits for readiness, sets DB env vars, then runs:
+`make start-pg-and-test` starts a temporary PostgreSQL container, waits for readiness, sets DB env vars, then runs:
 
 ```bash
-python -m pytest -vv
+make test
 ```
 
 Use it when you want one command that matches normal contributor workflow.
 
 ```bash
-make test
+make start-pg-and-test
 ```
 
 #### 2) Run against an existing PostgreSQL

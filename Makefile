@@ -34,11 +34,12 @@ install-lint: install ## Install lint dependencies in local virtualenv
 lint: install-lint ## Format code with ruff
 	$(VENV_DIR)/bin/ruff format postgresql_proxy tests plugins
 
-test: ## Start local PostgreSQL container and run all tests
+start-postgres: ## Start local PostgreSQL test container and wait until ready
 	@set -euo pipefail; \
-	cleanup() { docker rm -f $(PG_TEST_CONTAINER) >/dev/null 2>&1 || true; }; \
-	trap cleanup EXIT INT TERM; \
-	docker rm -f $(PG_TEST_CONTAINER) >/dev/null 2>&1 || true; \
+	if docker ps -a --format '{{.Names}}' | grep -Fx '$(PG_TEST_CONTAINER)' >/dev/null 2>&1; then \
+		echo "Container $(PG_TEST_CONTAINER) already exists; run 'make stop-postgres' first"; \
+		exit 1; \
+	fi; \
 	docker run --name $(PG_TEST_CONTAINER) \
 		-e POSTGRES_USER=$(PG_TEST_USER) \
 		-e POSTGRES_PASSWORD=$(PG_TEST_PASSWORD) \
@@ -54,13 +55,27 @@ test: ## Start local PostgreSQL container and run all tests
 	done; \
 	if ! docker exec $(PG_TEST_CONTAINER) pg_isready -U $(PG_TEST_USER) >/dev/null 2>&1; then \
 		echo "PostgreSQL did not become ready in time"; \
+		docker rm -f $(PG_TEST_CONTAINER) >/dev/null 2>&1 || true; \
 		exit 1; \
-	fi; \
+	fi
+
+stop-postgres: ## Stop and remove local PostgreSQL test container
+	@docker rm -f $(PG_TEST_CONTAINER) >/dev/null 2>&1 || true
+
+test: ## Run all tests against an already running PostgreSQL
+	$(VENV_DIR)/bin/$(PYTHON_CMD) -m pytest -vv
+
+start-pg-and-test: ## Start local PostgreSQL container, run all tests, and clean up
+	@set -euo pipefail; \
+	status=0; \
+	$(MAKE) start-postgres; \
 	E2E_PG_HOST=127.0.0.1 \
 	E2E_PG_PORT=$(PG_TEST_PORT) \
 	E2E_PG_USER=$(PG_TEST_USER) \
 	E2E_PG_PASSWORD=$(PG_TEST_PASSWORD) \
 	E2E_PG_DB=$(PG_TEST_DB) \
-	$(VENV_DIR)/bin/$(PYTHON_CMD) -m pytest -vv
+	$(MAKE) test || status=$$?; \
+	$(MAKE) stop-postgres; \
+	exit $$status
 
-.PHONY: usage install install-test install-lint clean publish test lint
+.PHONY: usage install install-test install-lint clean publish lint start-postgres stop-postgres test start-pg-and-test
