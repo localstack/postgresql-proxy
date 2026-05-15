@@ -5,18 +5,22 @@ Serves as a proper server that Postgresql clients can connect to. Can modify pac
 Currently used for rewriting queries to force proper use of postgres-hll module by external proprietary software that doesn't know about that functionality
 
 ## Installing
-### Linux
-1. Make sure you have [python3 and pip3 installed on your system](https://stackoverflow.com/questions/6587507/how-to-install-pip-with-python-3#6587528). It has been tested with Python3.6 but should also run on Python3.5.
-2. Clone it locally and cd to that directory
-  ```
-  git clone git@github.com:kfzteile24/postgresql-proxy.git
-  cd postgresql-proxy
-  ```
-3. Run [setup.sh](setup.sh)
-  ```
-  ./setup.sh
-  ```
-4. Make a copy of [config.yml.example](config.yml.example) called `config.yml` and configure your proxy instances. Create the log directories if they're not there.
+
+Requires Python `3.13+`.
+
+1. Clone the repository:
+   ```bash
+   git clone git@github.com:localstack/postgresql-proxy.git
+   cd postgresql-proxy
+   ```
+2. Install dependencies into a local virtualenv:
+   ```bash
+   make install
+   ```
+3. Copy the example config and edit it for your environment:
+   ```bash
+   cp config.yml.example config.yml
+   ```
 
 ## Configuring
 In the `config.yml` file you can define the following things
@@ -24,7 +28,7 @@ In the `config.yml` file you can define the following things
 A list of dynamically loaded modules that reside in the [plugins](plugins) directory. These plugins can be used in later configuration, to intercept queries, commands, or responses. View plugin documentation for example plugins for more details on how to do that.
 ### Settings
 General application settings. Currently the following settings are used
-* `log-level` - the log level for the general log. See [python logging](https://docs.python.org/3.6/library/logging.html) for more details about the logging functionality
+* `log-level` - the log level for the general log. See [python logging](https://docs.python.org/3/library/logging.html) for more details about the logging functionality
 * `general-log` - the location for the general log. All general messages go in there.
 * `intercept-log` - the location for the intercept log. Intercepted messages and return values from various enabled plugins will be written there. This log can be quite verbose as it contains the full binary messages being circulated.
 
@@ -42,19 +46,22 @@ Make sure to manage the logs yourself, as they accumulate and take up disk space
   
   Each interceptor definition must have a `plugin`, which should also be present in the [plugins](#Plugins) configuration, and a `function`, that is found directly in that module, that will be called each time with the intercepted message as a byte string, and a context variable that is an instance of the `Proxy` class, that contains connection information and other useful stuff.
 
-## Running in testing mode
-If you want to test it, do this. Otherwise scroll down for instructions on how to install it as a service
-### Linux
-1. Activate the virtual environment
-  ```
-  source .venv/bin/activate
-  ```
-2. Run it
-  ```
-  python proxy.py
-  ```
+## Running
 
-### Changelog
+Activate the virtualenv and run the proxy directly:
+
+```bash
+source .venv/bin/activate
+python -m postgresql_proxy
+```
+
+Or run it without activating the venv:
+
+```bash
+.venv/bin/python -m postgresql_proxy
+```
+
+## Changelog
 - v0.3.1
   - Fix SSL COPY stalls by draining pending SSL buffer after recv [#11](https://github.com/localstack/postgresql-proxy/pull/11)
   - Fix intermittent `BlockingIOError` on macOS during SSL negotiation
@@ -81,3 +88,64 @@ If you want to test it, do this. Otherwise scroll down for instructions on how t
   - add stop() method to proxy; refactor logging
 - v0.0.2
   - fix socket file descriptors under Linux
+
+## Testing
+
+All tests require a real PostgreSQL server and are organized at the top level:
+
+- `test_proxy.py`: proxy behavior tests (connection, SSL, hang regressions)
+- `test_plugins.py`: plugin integration tests (HLL rewrite behavior)
+
+### Prerequisites
+
+- Python `3.13` (same version as CI)
+- Docker (for local disposable PostgreSQL)
+- `psql` (`postgresql-client`)
+- `openssl` (SSL tests generate a temporary self-signed cert/key at runtime)
+
+Install Python deps in the project virtualenv:
+
+```bash
+make install-test
+```
+
+### Which command should I use?
+
+- One-command full local run with disposable Postgres: `make start-pg-and-test`
+- Run full suite against an already running Postgres: `make test`
+- Run only proxy tests (using your own Postgres): `python -m pytest tests/test_proxy.py -vv`
+- Run only plugin tests: `python -m pytest tests/test_plugins.py -vv`
+
+#### 1) Full local suite (recommended)
+
+`make start-pg-and-test` starts a temporary PostgreSQL container, waits for readiness, sets DB env vars, then runs:
+
+```bash
+make test
+```
+
+Use it when you want one command that matches normal contributor workflow.
+
+```bash
+make start-pg-and-test
+```
+
+#### 2) Run against an existing PostgreSQL
+
+If you already have PostgreSQL running, set connection env vars and run the tests you need:
+
+```bash
+export E2E_PG_HOST=127.0.0.1
+export E2E_PG_PORT=5432
+export E2E_PG_USER=postgres
+export E2E_PG_PASSWORD=postgres
+export E2E_PG_DB=postgres
+
+# Proxy tests only
+python -m pytest tests/test_proxy.py -vv
+
+# Plugin tests only
+python -m pytest tests/test_plugins.py -vv
+```
+
+If PostgreSQL is not reachable, tests fail fast at startup.

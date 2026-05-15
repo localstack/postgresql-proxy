@@ -329,7 +329,7 @@ class Proxy(object):
         self.running = False
 
 
-if __name__ == '__main__':
+def main():
     import importlib
     import yaml
     import os
@@ -370,3 +370,7 @@ if __name__ == '__main__':
         logging.info("Starting proxy instance")
         proxy = Proxy(instance, plugins)
         proxy.listen()
+
+
+if __name__ == "__main__":
+    main()
