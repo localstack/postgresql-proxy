@@ -253,10 +253,29 @@ class Proxy(object):
                     LOG.debug('%s connection closing %s', conn.name, conn.address)
                     # A file object shall be unregistered prior to being closed.
                     sock.close()
+                    return
             except OSError as e:
                 # it means the socket was closed by peer
                 LOG.debug('%s connection closed by peer %s: %s', conn.name, conn.address, e)
                 self._unregister_conn(conn)
+                return
+
+        if mask & selectors.EVENT_WRITE:
+            # Socket has buffer space — flush this connection's backlogged output.
+            try:
+                while conn.out_bytes:
+                    sent = sock.send(conn.out_bytes)
+                    conn.sent(sent)
+                # All data drained; stop watching for writability.
+                conn.events = selectors.EVENT_READ
+                self.selector.modify(sock, selectors.EVENT_READ, data=conn)
+            except BlockingIOError:
+                pass  # Still full; will retry on the next EVENT_WRITE notification.
+            except OSError as e:
+                LOG.debug('%s closed while flushing backlog: %s', conn.name, e)
+                self._unregister_conn(conn)
+                sock.close()
+                return
 
         next_conn = conn.redirect_conn
         if next_conn and next_conn.out_bytes:
@@ -265,6 +284,15 @@ class Proxy(object):
                     LOG.debug('sending to %s:\n%s', next_conn.name, next_conn.out_bytes)
                     sent = next_conn.sock.send(next_conn.out_bytes)
                     next_conn.sent(sent)
+                # All sent; clear write interest if it was previously registered.
+                if next_conn.events & selectors.EVENT_WRITE:
+                    next_conn.events = selectors.EVENT_READ
+                    self.selector.modify(next_conn.sock, selectors.EVENT_READ, data=next_conn)
+            except BlockingIOError:
+                # next_conn's send buffer is full — register for writability so we retry when there's space.
+                if not (next_conn.events & selectors.EVENT_WRITE):
+                    next_conn.events = selectors.EVENT_READ | selectors.EVENT_WRITE
+                    self.selector.modify(next_conn.sock, next_conn.events, data=next_conn)
             except OSError:
                 # If one side is closed, close the other one
                 # this can happen in the case where the client disconnects, and postgres still return a response
