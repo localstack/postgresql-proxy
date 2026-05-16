@@ -269,7 +269,7 @@ class Proxy(object):
                 # All data drained; stop watching for writability.
                 conn.events = selectors.EVENT_READ
                 self.selector.modify(sock, selectors.EVENT_READ, data=conn)
-            except BlockingIOError:
+            except (BlockingIOError, ssl.SSLWantWriteError):
                 pass  # Still full; will retry on the next EVENT_WRITE notification.
             except OSError as e:
                 LOG.debug('%s closed while flushing backlog: %s', conn.name, e)
@@ -288,7 +288,7 @@ class Proxy(object):
                 if next_conn.events & selectors.EVENT_WRITE:
                     next_conn.events = selectors.EVENT_READ
                     self.selector.modify(next_conn.sock, selectors.EVENT_READ, data=next_conn)
-            except BlockingIOError:
+            except (BlockingIOError, ssl.SSLWantWriteError):
                 # next_conn's send buffer is full — register for writability so we retry when there's space.
                 if not (next_conn.events & selectors.EVENT_WRITE):
                     next_conn.events = selectors.EVENT_READ | selectors.EVENT_WRITE
