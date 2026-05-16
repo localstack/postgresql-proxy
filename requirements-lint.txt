@@ -1,1 +1,2 @@
 ruff==0.15.12
+pre-commit

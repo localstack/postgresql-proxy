@@ -31,8 +31,14 @@ install-test: install ## Install test dependencies in local virtualenv
 install-lint: install ## Install lint dependencies in local virtualenv
 	($(VENV_RUN); $(PIP_CMD) install -r $(LINT_REQS))
 
-lint: install-lint ## Format code with ruff
-	$(VENV_DIR)/bin/ruff format postgresql_proxy tests plugins
+install-pre-commit: install-lint ## Install and register the pre-commit hook
+	$(VENV_DIR)/bin/pre-commit install
+
+CHECK ?=
+
+lint: install-lint ## Format code with ruff (use CHECK=1 to check without modifying)
+	$(VENV_DIR)/bin/ruff format $(if $(CHECK),--check,) postgresql_proxy tests plugins
+	$(VENV_DIR)/bin/ruff check $(if $(CHECK),,--fix) postgresql_proxy tests plugins
 
 start-postgres: ## Start local PostgreSQL test container and wait until ready
 	@set -euo pipefail; \
