@@ -1,17 +1,18 @@
+"""This class is used to validate the config"""
+
 import logging
 
-''' This class is used to validate the config
-'''
+
 class Schema:
     def _validate(self):
         pass
 
     def __hyphen_to_underscore(self, k):
-        return k.replace('-', '_')
+        return k.replace("-", "_")
 
     def _populate(self, data, definition):
         try:
-            for (k, v) in data.items():
+            for k, v in data.items():
                 k = self.__hyphen_to_underscore(k)
                 if k in definition:
                     vtype = definition[k]
@@ -30,11 +31,15 @@ class Schema:
 
     def _assert_non_empty(self, *attrs):
         for attr in attrs:
-            assert len(getattr(self, attr)) > 0, "{}.{} must not be empty".format(type(self).__name__, attr)
+            assert len(getattr(self, attr)) > 0, "{}.{} must not be empty".format(
+                type(self).__name__, attr
+            )
 
     def _assert_non_null(self, *attrs):
         for attr in attrs:
-            assert getattr(self, attr) is not None, "{}.{} must not be None".format(type(self).__name__, attr)
+            assert getattr(self, attr) is not None, "{}.{} must not be None".format(
+                type(self).__name__, attr
+            )
 
 
 class InterceptQuerySettings(Schema):
@@ -42,14 +47,11 @@ class InterceptQuerySettings(Schema):
         self.plugin = None
         self.function = None
 
-        self._populate(data, {
-            'plugin': str,
-            'function': str
-        })
+        self._populate(data, {"plugin": str, "function": str})
 
     def _validate(self):
-        self._assert_non_null('plugin', 'function')
-        self._assert_non_empty('plugin', 'function')
+        self._assert_non_null("plugin", "function")
+        self._assert_non_empty("plugin", "function")
 
 
 class InterceptCommandSettings(Schema):
@@ -57,10 +59,7 @@ class InterceptCommandSettings(Schema):
         self.queries = []
         self.connects = None
 
-        self._populate(data, {
-            'queries': [InterceptQuerySettings],
-            'connects': str
-        })
+        self._populate(data, {"queries": [InterceptQuerySettings], "connects": str})
 
 
 class InterceptResponseSettings(Schema):
@@ -68,10 +67,9 @@ class InterceptResponseSettings(Schema):
         self.parameter_responses = []
         self.connects = None
 
-        self._populate(data, {
-            'parameter_status': [InterceptQuerySettings],
-            'connects': str
-        })
+        self._populate(
+            data, {"parameter_status": [InterceptQuerySettings], "connects": str}
+        )
 
 
 class InterceptSettings(Schema):
@@ -79,10 +77,13 @@ class InterceptSettings(Schema):
         self.commands = None
         self.responses = None
 
-        self._populate(data, {
-            'commands': InterceptCommandSettings,
-            'responses': InterceptResponseSettings,
-        })
+        self._populate(
+            data,
+            {
+                "commands": InterceptCommandSettings,
+                "responses": InterceptResponseSettings,
+            },
+        )
 
 
 class Connection(Schema):
@@ -91,15 +92,11 @@ class Connection(Schema):
         self.host = None
         self.port = None
 
-        self._populate(data, {
-            'name': str,
-            'host': str,
-            'port': int
-        })
+        self._populate(data, {"name": str, "host": str, "port": int})
 
     def _validate(self):
-        self._assert_non_null('name', 'host', 'port')
-        self._assert_non_empty('name')
+        self._assert_non_null("name", "host", "port")
+        self._assert_non_empty("name")
 
 
 class InstanceSettings(Schema):
@@ -108,15 +105,17 @@ class InstanceSettings(Schema):
         self.redirect = None
         self.intercept = None
 
-        self._populate(data, {
-            'listen': Connection,
-            'redirect': Connection,
-            'intercept': InterceptSettings
-        })
-
+        self._populate(
+            data,
+            {
+                "listen": Connection,
+                "redirect": Connection,
+                "intercept": InterceptSettings,
+            },
+        )
 
     def _validate(self):
-        self._assert_non_null('listen', 'redirect')
+        self._assert_non_null("listen", "redirect")
 
 
 class Settings(Schema):
@@ -125,15 +124,13 @@ class Settings(Schema):
         self.intercept_log = None
         self.general_log = None
 
-        self._populate(data, {
-            'log_level': str,
-            'intercept_log': str,
-            'general_log': str
-        })
+        self._populate(
+            data, {"log_level": str, "intercept_log": str, "general_log": str}
+        )
 
     def _validate(self):
-        self._assert_non_null('log_level', 'intercept_log', 'general_log')
-        self._assert_non_empty('log_level', 'intercept_log', 'general_log')
+        self._assert_non_null("log_level", "intercept_log", "general_log")
+        self._assert_non_empty("log_level", "intercept_log", "general_log")
 
 
 class Config(Schema):
@@ -142,11 +139,10 @@ class Config(Schema):
         self.settings = None
         self.instances = []
 
-        self._populate(data, {
-            'plugins' : [str],
-            'settings' : Settings,
-            'instances' : [InstanceSettings]
-        })
+        self._populate(
+            data,
+            {"plugins": [str], "settings": Settings, "instances": [InstanceSettings]},
+        )
 
     def _validate(self):
-        self._assert_non_empty('instances')
+        self._assert_non_empty("instances")
