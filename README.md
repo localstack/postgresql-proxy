@@ -62,6 +62,9 @@ Or run it without activating the venv:
 ```
 
 ## Changelog
+- v0.3.2
+  - Fix proxy hang on large responses by adding backpressure handling [#16](https://github.com/localstack/postgresql-proxy/pull/16)
+  - Reduce SSL connection overhead by setting `TCP_NODELAY` [#15](https://github.com/localstack/postgresql-proxy/pull/15)
 - v0.3.1
   - Fix SSL COPY stalls by draining pending SSL buffer after recv [#11](https://github.com/localstack/postgresql-proxy/pull/11)
   - Fix intermittent `BlockingIOError` on macOS during SSL negotiation

@@ -227,6 +227,70 @@ def test_repeated_connect_query_smoke_no_hang(postgres_settings, plain_proxy_por
 
 
 @pytest.mark.timeout(60)
+@pytest.mark.parametrize("sslmode", ["disable", "require"])
+@pytest.mark.parametrize(
+    ["sql", "expected"],
+    [
+        pytest.param(
+            "SELECT 1",
+            [(1,)],
+            id="tiny-1B",
+        ),
+        pytest.param(
+            "SELECT repeat('x', 1024)",
+            [("x" * 1024,)],
+            id="small-1KB",
+        ),
+        pytest.param(
+            "SELECT repeat('x', 102400)",
+            [("x" * 102400,)],
+            id="medium-100KB",
+        ),
+        pytest.param(
+            "SELECT repeat('x', 1048576)",
+            [("x" * 1048576,)],
+            id="large-1MB",
+        ),
+        pytest.param(
+            "SELECT repeat('x', 10485760)",
+            [("x" * 10485760,)],
+            id="xlarge-10MB",
+        ),
+        pytest.param(
+            "SELECT i FROM generate_series(1, 10000) AS t(i)",
+            [(i,) for i in range(1, 10001)],
+            id="rows-10k",
+        ),
+        pytest.param(
+            "SELECT i FROM generate_series(1, 100000) AS t(i)",
+            [(i,) for i in range(1, 100001)],
+            id="rows-100k",
+        ),
+    ]
+)
+def test_various_payload_sizes(
+    postgres_settings,
+    plain_proxy_port,
+    ssl_proxy_port,
+    sslmode,
+    sql,
+    expected,
+):
+    with psycopg2.connect(
+        host="127.0.0.1",
+        port=plain_proxy_port if sslmode == "disable" else ssl_proxy_port,
+        user=postgres_settings["user"],
+        password=postgres_settings["password"],
+        dbname=postgres_settings["dbname"],
+        sslmode=sslmode,
+        connect_timeout=3,
+    ) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            assert cur.fetchall() == expected
+
+
+@pytest.mark.timeout(60)
 def test_psql_ssl_file_batch_stress_no_hang(postgres_settings, ssl_proxy_port):
     if shutil.which("psql") is None:
         pytest.fail("psql is required for this test but was not found in PATH")
