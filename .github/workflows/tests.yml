@@ -7,6 +7,20 @@ on:
       - master
 
 jobs:
+  lint:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Lint
+        run: make lint CHECK=1
+
   tests:
     runs-on: ubuntu-24.04
 

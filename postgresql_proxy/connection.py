@@ -13,15 +13,15 @@ class Connection:
         self.context = context
         self.interceptor = None
         self.redirect_conn: Optional[Connection] = None
-        self.out_bytes = b''
-        self.in_bytes = b''
+        self.out_bytes = b""
+        self.in_bytes = b""
         self.terminated = False
 
     def parse_length(self, length_bytes):
-        return int.from_bytes(length_bytes, 'big')
+        return int.from_bytes(length_bytes, "big")
 
     def encode_length(self, length):
-        return length.to_bytes(4, byteorder='big')
+        return length.to_bytes(4, byteorder="big")
 
     def received(self, in_bytes):
         self.in_bytes += in_bytes
@@ -29,12 +29,12 @@ class Connection:
         # Otherwise wait for more bytes to be received (break and exit)
         while True:
             ptype = self.in_bytes[0:1]
-            if ptype == b'\x00':
+            if ptype == b"\x00":
                 if len(self.in_bytes) < 4:
                     break
                 header_length = 4
                 body_length = self.parse_length(self.in_bytes[0:4]) - 4
-            elif ptype == b'N':
+            elif ptype == b"N":
                 header_length = 1
                 body_length = 0
             else:
@@ -52,18 +52,22 @@ class Connection:
             self.in_bytes = self.in_bytes[length:]
 
     def process_inbound_packet(self, header, body):
-        if header != b'N':
+        if header != b"N":
             packet_type = header[0:-4]
-            _logger.info("intercepting packet of type '%s' from %s", packet_type, self.name)
+            _logger.info(
+                "intercepting packet of type '%s' from %s", packet_type, self.name
+            )
             body = self.interceptor.intercept(packet_type, body)
             header = packet_type + self.encode_length(len(body) + 4)
-            if packet_type == b'X':
+            if packet_type == b"X":
                 # this a termination packet, it will indicate that the proxied client wants to close the
                 # postgres connection properly
                 self.terminated = True
 
         message = header + body
-        _logger.debug("Received message. Relaying. Speaker: %s, message:\n%s", self.name, message)
+        _logger.debug(
+            "Received message. Relaying. Speaker: %s, message:\n%s", self.name, message
+        )
 
         if self.redirect_conn:
             # redirect_conn might not be set (anymore) at this stage

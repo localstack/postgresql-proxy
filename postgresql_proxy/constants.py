@@ -1,4 +1,3 @@
-
 ALLOWED_CONNECTION_PARAMETERS = [
     "host",
     "hostaddr",

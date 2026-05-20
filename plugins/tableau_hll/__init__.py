@@ -2,13 +2,19 @@ import psycopg2
 import re
 
 # The field to replace
-field_pattern = re.compile('(?<=[^\w])count\(distinct (?:cast\()?("[^"]+")\.("[^"]+")(?: as text\))?\)', re.IGNORECASE)
+field_pattern = re.compile(
+    '(?<=[^\w])count\(distinct (?:cast\()?("[^"]+")\.("[^"]+")(?: as text\))?\)',
+    re.IGNORECASE,
+)
 # Table name
-table_pattern = re.compile('from ([^\(\)]+?)\s*\)? (?:AS )?("[^"]+")', re.IGNORECASE | re.DOTALL)
+table_pattern = re.compile(
+    'from ([^\(\)]+?)\s*\)? (?:AS )?("[^"]+")', re.IGNORECASE | re.DOTALL
+)
+
 
 def rewrite_query(query, context):
-    original_table = ''
-    table_alias = ''
+    original_table = ""
+    table_alias = ""
 
     # cache only works on current query. Mainly because there's no way to tell if the table has been modified between
     # 2 different requests.
@@ -26,8 +32,8 @@ def rewrite_query(query, context):
             hll_column_candidate = match.group(2).strip()
 
             # need to know which columns are hll
-            if not hll_table.lower() in column_cache:
-                db_conn_info = context['instance_config'].redirect
+            if hll_table.lower() not in column_cache:
+                db_conn_info = context["instance_config"].redirect
                 conn = None
                 try:
                     conn = psycopg2.connect(
@@ -36,17 +42,17 @@ def rewrite_query(query, context):
                             db_conn_info.host,
                             db_conn_info.port,
                             # Get auth information from the proxied request
-                            context['connect_params']['database'],
-                            context['connect_params']['user']
+                            context["connect_params"]["database"],
+                            context["connect_params"]["user"],
                         )
                     )
-                    
+
                     hll_type_code = None
                     cur = conn.cursor()
                     try:
                         cur.execute("SELECT oid FROM pg_type WHERE typname='hll';")
-                        hll_type_code, = cur.fetchone()
-                    except:
+                        (hll_type_code,) = cur.fetchone()
+                    except Exception:
                         pass
                     finally:
                         cur.close()
@@ -65,7 +71,7 @@ def rewrite_query(query, context):
                                 hll_columns.add(desc.name.lower())
 
                         column_cache[hll_table.lower()] = hll_columns
-                    except:
+                    except Exception:
                         pass
                     finally:
                         cur.close()
@@ -76,12 +82,16 @@ def rewrite_query(query, context):
                         conn.close()
 
             # Replace
-            if hll_column_candidate.strip('"').lower() in column_cache[hll_table.lower()]:
-                return ' hll_cardinality(hll_union_agg({}.{})) :: BIGINT '.format(match.group(1), match.group(2))
+            if (
+                hll_column_candidate.strip('"').lower()
+                in column_cache[hll_table.lower()]
+            ):
+                return " hll_cardinality(hll_union_agg({}.{})) :: BIGINT ".format(
+                    match.group(1), match.group(2)
+                )
 
         # Don't replace
         return match.group(0)
-
 
     # Matches this string. The 2 groups are `schema.table` and `"alias"`
     # FROM schema.table) "alias"

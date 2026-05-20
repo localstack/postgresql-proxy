@@ -266,7 +266,7 @@ def test_repeated_connect_query_smoke_no_hang(postgres_settings, plain_proxy_por
             [(i,) for i in range(1, 100001)],
             id="rows-100k",
         ),
-    ]
+    ],
 )
 def test_various_payload_sizes(
     postgres_settings,

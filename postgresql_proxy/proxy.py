@@ -1,4 +1,4 @@
-'''For every configured instance, a Proxy object is created, that starts a listener.
+"""For every configured instance, a Proxy object is created, that starts a listener.
 On connect, it initiates a parallel connection to postgresql and pairs them together.
 Using selectors, packets are received, intercepted and relayed to the other party.
 
@@ -22,7 +22,7 @@ Handling:
 proxy.py - connections and sockets things
 connection.py - parsing and composing packets, launching interceptors
 interceptors.py - intercepting for modification
-'''
+"""
 
 from __future__ import annotations
 
@@ -76,17 +76,21 @@ class Proxy(object):
         pg_sock.setblocking(False)
 
         events = selectors.EVENT_READ
-        redirect_config_name = redirect_config.name + '_' + str(self.num_clients)
+        redirect_config_name = redirect_config.name + "_" + str(self.num_clients)
         pg_conn = connection.Connection(
             pg_sock,
             name=redirect_config_name,
             address=address,
             events=events,
-            context=context
+            context=context,
         )
 
-        LOG.info("initiated client connection to %s:%s called %s",
-                 redirect_config.host, redirect_config.port, redirect_config_name)
+        LOG.info(
+            "initiated client connection to %s:%s called %s",
+            redirect_config.host,
+            redirect_config.port,
+            redirect_config_name,
+        )
         return pg_conn
 
     def _register_conn(self, conn: connection.Connection):
@@ -110,12 +114,15 @@ class Proxy(object):
             # this will cause postgres to close the socket on its side cleanly
             try:
                 LOG.debug("try closing connection %s", conn.redirect_conn.name)
-                conn.redirect_conn.sock.send(b'X\x00\x00\x00\x04')
+                conn.redirect_conn.sock.send(b"X\x00\x00\x00\x04")
                 # remove reference to itself
                 conn.redirect_conn.redirect_conn = None
             except OSError:
                 # OSError includes all socket exceptions + Connection* related exceptions
-                LOG.debug("tried closing connection %s: already closed", conn.redirect_conn.name)
+                LOG.debug(
+                    "tried closing connection %s: already closed",
+                    conn.redirect_conn.name,
+                )
 
         if self._debug:
             self._registered_conn.discard(f"{conn.name}-{conn.sock.fileno()}")
@@ -233,11 +240,11 @@ class Proxy(object):
         sock = key.fileobj
         conn = key.data
         if mask & selectors.EVENT_READ:
-            LOG.debug('%s can receive', conn.name)
+            LOG.debug("%s can receive", conn.name)
             try:
                 recv_data = sock.recv(4096)  # Should be ready to read
                 if recv_data:
-                    LOG.debug('%s received data:\n%s', conn.name, recv_data)
+                    LOG.debug("%s received data:\n%s", conn.name, recv_data)
                     conn.received(recv_data)
                     # excerpt from https://docs.python.org/3/library/ssl.html#ssl-nonblocking
                     # Conversely, since the SSL layer has its own framing, a SSL socket may still have data available
@@ -246,17 +253,21 @@ class Proxy(object):
                     while isinstance(sock, ssl.SSLSocket) and sock.pending() > 0:
                         extra = sock.recv(4096)
                         if extra:
-                            LOG.debug('%s received pending SSL data:\n%s', conn.name, extra)
+                            LOG.debug(
+                                "%s received pending SSL data:\n%s", conn.name, extra
+                            )
                             conn.received(extra)
                 else:
                     self._unregister_conn(conn)
-                    LOG.debug('%s connection closing %s', conn.name, conn.address)
+                    LOG.debug("%s connection closing %s", conn.name, conn.address)
                     # A file object shall be unregistered prior to being closed.
                     sock.close()
                     return
             except OSError as e:
                 # it means the socket was closed by peer
-                LOG.debug('%s connection closed by peer %s: %s', conn.name, conn.address, e)
+                LOG.debug(
+                    "%s connection closed by peer %s: %s", conn.name, conn.address, e
+                )
                 self._unregister_conn(conn)
                 return
 
@@ -272,7 +283,7 @@ class Proxy(object):
             except (BlockingIOError, ssl.SSLWantWriteError):
                 pass  # Still full; will retry on the next EVENT_WRITE notification.
             except OSError as e:
-                LOG.debug('%s closed while flushing backlog: %s', conn.name, e)
+                LOG.debug("%s closed while flushing backlog: %s", conn.name, e)
                 self._unregister_conn(conn)
                 sock.close()
                 return
@@ -281,23 +292,27 @@ class Proxy(object):
         if next_conn and next_conn.out_bytes:
             try:
                 while next_conn.out_bytes:
-                    LOG.debug('sending to %s:\n%s', next_conn.name, next_conn.out_bytes)
+                    LOG.debug("sending to %s:\n%s", next_conn.name, next_conn.out_bytes)
                     sent = next_conn.sock.send(next_conn.out_bytes)
                     next_conn.sent(sent)
                 # All sent; clear write interest if it was previously registered.
                 if next_conn.events & selectors.EVENT_WRITE:
                     next_conn.events = selectors.EVENT_READ
-                    self.selector.modify(next_conn.sock, selectors.EVENT_READ, data=next_conn)
+                    self.selector.modify(
+                        next_conn.sock, selectors.EVENT_READ, data=next_conn
+                    )
             except (BlockingIOError, ssl.SSLWantWriteError):
                 # next_conn's send buffer is full — register for writability so we retry when there's space.
                 if not (next_conn.events & selectors.EVENT_WRITE):
                     next_conn.events = selectors.EVENT_READ | selectors.EVENT_WRITE
-                    self.selector.modify(next_conn.sock, next_conn.events, data=next_conn)
+                    self.selector.modify(
+                        next_conn.sock, next_conn.events, data=next_conn
+                    )
             except OSError:
                 # If one side is closed, close the other one
                 # this can happen in the case where the client disconnects, and postgres still return a response
                 # we then read the response then close the PG side of the socket.
-                LOG.debug('error sending to %s: connection closed', next_conn.name)
+                LOG.debug("error sending to %s: connection closed", next_conn.name)
                 self._unregister_conn(conn)
                 sock.close()
 
@@ -331,7 +346,10 @@ class Proxy(object):
                         self.service_connection(key, mask)
 
         except OSError as ex:
-            LOG.error("Can't establish PostgreSQL proxy listener on port %s" % port, exc_info=ex)
+            LOG.error(
+                "Can't establish PostgreSQL proxy listener on port %s" % port,
+                exc_info=ex,
+            )
         except Exception:
             LOG.exception("PostgreSQL proxy quit unexpectedly:")
         finally:
@@ -341,7 +359,9 @@ class Proxy(object):
             # it should not happen anymore
             if self._debug:
                 LOG.debug("Registered connections dangling: %s", self._registered_conn)
-            registered_selector_sockets = [skey for i, skey in self.selector.get_map().items()]
+            registered_selector_sockets = [
+                skey for i, skey in self.selector.get_map().items()
+            ]
             for selector_key in registered_selector_sockets:
                 LOG.debug("Connection left: %s", selector_key)
                 selector_key: SelectorKeyProxy
@@ -367,7 +387,7 @@ def main():
     path = os.path.dirname(os.path.realpath(__file__))
     config = None
     try:
-        with open(path + '/' + 'config.yml', 'r') as fp:
+        with open(path + "/" + "config.yml", "r") as fp:
             config = cfg.Config(yaml.load(fp))
     except Exception:
         logging.critical("Could not read config. Aborting.")
@@ -376,24 +396,28 @@ def main():
     logging.basicConfig(
         filename=config.settings.general_log,
         level=getattr(logging, config.settings.log_level.upper()),
-        format='%(asctime)s : %(levelname)s : %(message)s'
+        format="%(asctime)s : %(levelname)s : %(message)s",
     )
 
-    qlog = logging.getLogger('intercept')
-    qformat = logging.Formatter('%(asctime)s : %(message)s')
-    qhandler = logging.FileHandler(config.settings.intercept_log, mode = 'w')
+    qlog = logging.getLogger("intercept")
+    qformat = logging.Formatter("%(asctime)s : %(message)s")
+    qhandler = logging.FileHandler(config.settings.intercept_log, mode="w")
     qhandler.setFormatter(qformat)
     qlog.addHandler(qhandler)
     qlog.setLevel(logging.DEBUG)
 
-    print('general log, level {}: {}'.format(config.settings.log_level, config.settings.general_log))
-    print('intercept log: {}'.format(config.settings.intercept_log))
-    print('further messages directed to log')
+    print(
+        "general log, level {}: {}".format(
+            config.settings.log_level, config.settings.general_log
+        )
+    )
+    print("intercept log: {}".format(config.settings.intercept_log))
+    print("further messages directed to log")
 
     plugins = {}
     for plugin in config.plugins:
         logging.info("Loading module %s", plugin)
-        module = importlib.import_module('plugins.' + plugin)
+        module = importlib.import_module("plugins." + plugin)
         plugins[plugin] = module
 
     for instance in config.instances:
