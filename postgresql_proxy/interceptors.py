@@ -55,14 +55,20 @@ class CommandInterceptor(Interceptor):
                 # Query, ends with b'\x00'
                 data = self._intercept_query(data, ic_queries)
             elif packet_type == b"P":
-                # Statement that needs parsing.
-                # First byte of the body is some Statement flag. Ignore, don't lose
-                # Next is the query, same as above, ends with an b'\x00'
-                # Last 2 bytes are the number of parameters. Ignore, don't lose
-                statement = data[0:1]
-                query = self._intercept_query(data[1:-2], ic_queries)
-                params = data[-2:]
-                data = statement + query + params
+                # Parse packet body:
+                #   statement_name\x00 + query\x00 + int16(param_count) + uint32[]
+                # Keep the binary suffix untouched (count + OID array).
+                statement_end = data.find(b"\x00")
+                if statement_end != -1:
+                    query_start = statement_end + 1
+                    query_end = data.find(b"\x00", query_start)
+                    if query_end != -1:
+                        statement = data[:query_start]
+                        query = self._intercept_query(
+                            data[query_start : query_end + 1], ic_queries
+                        )
+                        params = data[query_end + 1 :]
+                        data = statement + query + params
 
         if packet_type == b"":
             # Connection request / context. Ignore the first 4 bytes, keep it
