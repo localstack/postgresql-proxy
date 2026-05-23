@@ -441,3 +441,26 @@ def test_extended_query_protocol_named_prepared_statement_passes_through_proxy(
             )
             prepared_count = cur.fetchone()
             assert prepared_count is not None and prepared_count[0] >= 1
+
+
+def test_non_utf8_client_encoding_query_text_through_proxy(
+    postgres_settings, plain_proxy_port
+):
+    """Proxy query interception should honor client_encoding when decoding query text."""
+    with psycopg2.connect(
+        host="127.0.0.1",
+        port=plain_proxy_port,
+        user=postgres_settings["user"],
+        password=postgres_settings["password"],
+        dbname=postgres_settings["dbname"],
+        sslmode="disable",
+        connect_timeout=3,
+        client_encoding="LATIN1",
+    ) as conn:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("SHOW client_encoding")
+            assert cur.fetchone() == ("LATIN1",)
+
+            cur.execute("SELECT 'olá'::text")
+            assert cur.fetchone() == ("olá",)
