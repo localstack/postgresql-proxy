@@ -55,20 +55,14 @@ class CommandInterceptor(Interceptor):
                 # Query, ends with b'\x00'
                 data = self._intercept_query(data, ic_queries)
             elif packet_type == b"P":
-                # Parse packet body:
-                #   statement_name\x00 + query\x00 + int16(param_count) + uint32[]
-                # Keep the binary suffix untouched (count + OID array).
-                statement_end = data.find(b"\x00")
-                if statement_end != -1:
-                    query_start = statement_end + 1
-                    query_end = data.find(b"\x00", query_start)
-                    if query_end != -1:
-                        statement = data[:query_start]
-                        query = self._intercept_query(
-                            data[query_start : query_end + 1], ic_queries
-                        )
-                        params = data[query_end + 1 :]
-                        data = statement + query + params
+                # Parse message (Extended Query Protocol). Body format:
+                #   statement_name\x00 + query\x00 + int16(param_count) + uint32[] OIDs
+                # maxsplit=2 keeps the binary suffix intact even when OID values contain \x00 bytes.
+                parts = data.split(b"\x00", 2)
+                if len(parts) == 3:
+                    statement, raw_query, params = parts
+                    query = self._intercept_query(raw_query, ic_queries)
+                    data = statement + b"\x00" + query + params
 
         if packet_type == b"":
             # Connection request / context. Ignore the first 4 bytes, keep it
@@ -106,8 +100,8 @@ class CommandInterceptor(Interceptor):
 
     def _intercept_query(self, query, interceptors):
         logging.getLogger("intercept").debug("intercepting query\n%s", query)
-        # Remove zero byte at the end
-        query = query[:-1].decode("utf-8")
+        # Remove null terminator
+        query = query.rstrip(b"\x00").decode("utf-8")
         for interceptor in interceptors:
             func = self._get_plugin_interceptor_function(interceptor)
             query = func(query, self.context)
