@@ -263,6 +263,10 @@ class Proxy(object):
                     # A file object shall be unregistered prior to being closed.
                     sock.close()
                     return
+            except ssl.SSLWantReadError:
+                # Partial TLS record received; the selector will fire again when the
+                # remaining bytes of the record arrive. Do not treat this as a disconnect.
+                pass
             except OSError as e:
                 # it means the socket was closed by peer
                 LOG.debug(
