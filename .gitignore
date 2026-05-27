@@ -111,3 +111,6 @@ venv.bak/
 
 # private config information
 config.yml
+
+# Hatch VCS hook generates this file during build
+postgresql_proxy/version.py
