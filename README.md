@@ -62,6 +62,10 @@ Or run it without activating the venv:
 ```
 
 ## Changelog
+- v0.3.3
+  - Fix query encoding: honor `client_encoding` instead of assuming UTF-8 [#19](https://github.com/localstack/postgresql-proxy/pull/19)
+  - Fix EQP Parse packet corruption with high-byte OIDs (e.g. jsonb) causing `UnicodeDecodeError` [#18](https://github.com/localstack/postgresql-proxy/pull/18)
+  - Improve SSL resilience under fragmented TCP delivery [#20](https://github.com/localstack/postgresql-proxy/pull/20)
 - v0.3.2
   - Fix proxy hang on large responses by adding backpressure handling [#16](https://github.com/localstack/postgresql-proxy/pull/16)
   - Reduce SSL connection overhead by setting `TCP_NODELAY` [#15](https://github.com/localstack/postgresql-proxy/pull/15)

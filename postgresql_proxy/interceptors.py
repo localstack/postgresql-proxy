@@ -101,7 +101,8 @@ class CommandInterceptor(Interceptor):
     def _intercept_query(self, query, interceptors):
         logging.getLogger("intercept").debug("intercepting query\n%s", query)
         # Remove null terminator
-        query = query.rstrip(b"\x00").decode("utf-8")
+        codec = self.get_codec()
+        query = query.rstrip(b"\x00").decode(codec)
         for interceptor in interceptors:
             func = self._get_plugin_interceptor_function(interceptor)
             query = func(query, self.context)
@@ -113,7 +114,7 @@ class CommandInterceptor(Interceptor):
             )
 
         # Append the zero byte at the end
-        return query.encode("utf-8") + b"\x00"
+        return query.encode(codec) + b"\x00"
 
 
 class ResponseInterceptor(Interceptor):
