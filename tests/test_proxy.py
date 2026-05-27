@@ -1,3 +1,4 @@
+from collections.abc import Generator
 import contextlib
 import os
 import shutil
@@ -8,11 +9,23 @@ import tempfile
 import threading
 import time
 
+import psycopg
 import psycopg2
 import pytest
 
 from postgresql_proxy import config_schema as cfg
 from postgresql_proxy.proxy import Proxy
+
+
+class _QuerySpy:
+    """Minimal query interceptor that records every query it sees."""
+
+    def __init__(self):
+        self.captured: list[str] = []
+
+    def capture(self, query: str, context) -> str:
+        self.captured.append(query)
+        return query
 
 
 def _get_free_tcp_port() -> int:
@@ -125,8 +138,18 @@ def _temporary_server_cert_pair():
 
 
 @contextlib.contextmanager
-def _run_proxy(postgres_settings, ssl_context: ssl.SSLContext | None = None):
+def _run_proxy(
+    postgres_settings,
+    ssl_context: ssl.SSLContext | None = None,
+    *,
+    plugins: dict | None = None,
+    query_interceptors: list[dict] | None = None,
+) -> Generator[int, None, None]:
+    """Start a proxy in a background thread and yield its listening port."""
     proxy_port = _get_free_tcp_port()
+    commands_config: dict = {}
+    if query_interceptors:
+        commands_config["queries"] = query_interceptors
     instance = cfg.InstanceSettings(
         {
             "listen": {"name": "proxy", "host": "127.0.0.1", "port": proxy_port},
@@ -135,14 +158,13 @@ def _run_proxy(postgres_settings, ssl_context: ssl.SSLContext | None = None):
                 "host": postgres_settings["host"],
                 "port": postgres_settings["port"],
             },
-            # Keep interceptors active with default no-op behavior.
-            "intercept": {"commands": {}, "responses": {}},
+            "intercept": {"commands": commands_config, "responses": {}},
         }
     )
     if not hasattr(instance.intercept.responses, "parameter_status"):
         instance.intercept.responses.parameter_status = []
 
-    proxy = Proxy(instance, plugins={}, debug=True, ssl_context=ssl_context)
+    proxy = Proxy(instance, plugins=plugins or {}, debug=True, ssl_context=ssl_context)
     thread = threading.Thread(
         target=proxy.listen, kwargs={"max_connections": 32}, daemon=True
     )
@@ -332,3 +354,90 @@ def test_psql_ssl_file_batch_stress_no_hang(postgres_settings, ssl_proxy_port):
                     "psql -f batch succeeded but expected marker missing "
                     f"(run={run_idx + 1}, {elapsed=:.2f}s) stdout_tail={out_tail}"
                 )
+
+
+def test_extended_query_protocol_parse_packet_with_high_oid_params_passes_through_proxy(
+    postgres_settings,
+):
+    """Regression: proxy must not corrupt Extended Query Protocol Parse packets.
+
+    psycopg v3 sends Parse → Bind → Execute for parameterized queries.  The Parse body
+    ends with binary uint32 OIDs; jsonb OID 3802 (0x00000EDA) contains 0xDA which is
+    not valid UTF-8.  The old interceptor sliced the body incorrectly and crashed on
+    decode, causing the connection to hang or drop.
+
+    A _QuerySpy is wired into the proxy to verify the interceptor receives the correct
+    SQL text — not corrupted bytes from the binary OID suffix.
+    """
+    spy = _QuerySpy()
+    with _run_proxy(
+        postgres_settings,
+        plugins={"spy": spy},
+        query_interceptors=[{"plugin": "spy", "function": "capture"}],
+    ) as proxy_port:
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=proxy_port,
+            user=postgres_settings["user"],
+            password=postgres_settings["password"],
+            dbname=postgres_settings["dbname"],
+            sslmode="disable",
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DROP TABLE IF EXISTS _test_jsonb_proxy_params;"
+                    "CREATE TABLE _test_jsonb_proxy_params "
+                    "(id serial PRIMARY KEY, data jsonb, label text);"
+                )
+
+                cur.execute(
+                    "INSERT INTO _test_jsonb_proxy_params (data, label) "
+                    "VALUES (%s, %s) RETURNING id",
+                    (psycopg.types.json.Jsonb({"key": "value"}), "hello"),
+                )
+                row = cur.fetchone()
+
+    assert row is not None and row[0] >= 1
+
+    # Verify the interceptor received clean SQL — no binary OID bytes leaked in.
+    insert_queries = [
+        q for q in spy.captured if "INSERT INTO _test_jsonb_proxy_params" in q
+    ]
+    assert insert_queries
+    assert all("\x00" not in q for q in insert_queries), (
+        "null byte leaked into intercepted query"
+    )
+
+
+def test_extended_query_protocol_named_prepared_statement_passes_through_proxy(
+    postgres_settings, plain_proxy_port
+):
+    """Parse packets with a non-empty statement name must also be relayed correctly.
+
+    The statement_name field precedes the query text in the Parse body.  The fix uses
+    find(b'\\x00') to locate boundaries, so named statements work the same as anonymous
+    ones (empty name).
+    """
+    with psycopg.connect(
+        host="127.0.0.1",
+        port=plain_proxy_port,
+        user=postgres_settings["user"],
+        password=postgres_settings["password"],
+        dbname=postgres_settings["dbname"],
+        sslmode="disable",
+        # Prepare after the first execution of the same query (i.e. on 2nd run).
+        prepare_threshold=1,
+    ) as conn:
+        with conn.cursor() as cur:
+            # Execute twice so psycopg can promote the query to a named statement.
+            for val in (1, 2):
+                cur.execute("SELECT %s::int + 1", (val,))
+                result = cur.fetchone()
+                assert result == (val + 1,)
+
+            # Verify psycopg created a named prepared statement in this session.
+            cur.execute(
+                "SELECT count(*) FROM pg_prepared_statements WHERE name LIKE '_pg3_%'"
+            )
+            prepared_count = cur.fetchone()
+            assert prepared_count is not None and prepared_count[0] >= 1
