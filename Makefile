@@ -20,10 +20,18 @@ install:           ## Install dependencies in local virtualenv folder
 	(test `which virtualenv` || $(PIP_CMD) install virtualenv) && \
 		(test -e $(VENV_DIR) || virtualenv $(VENV_OPTS) $(VENV_DIR)) && \
 		($(VENV_RUN) && $(PIP_CMD) install --upgrade pip) && \
-		(test ! -e requirements.txt || ($(VENV_RUN); $(PIP_CMD) install -r requirements.txt))
+		(test ! -e requirements.txt || ($(VENV_RUN); $(PIP_CMD) install -r requirements.txt)) && \
+		($(VENV_RUN); $(PIP_CMD) install -e .)
 
-publish:           ## Publish the library to the central PyPi repository
-	($(VENV_RUN); pip install twine; python ./setup.py sdist && twine upload dist/*)
+dist: clean        ## Build distribution packages
+	python -m pip install -U build hatchling hatch-vcs
+	python -m build
+
+clean:             ## Remove build artifacts
+	rm -rf dist build *.egg-info postgresql_proxy/version.py
+
+publish: dist      ## Publish the library to the central PyPi repository
+	($(VENV_RUN); pip install twine; twine upload dist/*)
 
 install-test: install ## Install test dependencies in local virtualenv
 	($(VENV_RUN); $(PIP_CMD) install -r $(TEST_REQS))
@@ -85,7 +93,7 @@ start-pg-and-test: ## Start local PostgreSQL container, run all tests, and clean
 	exit $$status
 
 ACT_CMD ?= act
-ACT_WORKFLOW ?= .github/workflows/tests.yml
+ACT_WORKFLOW ?= .github/workflows/build.yml
 ACT_JOB ?= tests
 ACT_PULL ?= false
 ACT_CONTAINER_ARCH ?= linux/arm64
@@ -93,4 +101,4 @@ ACT_CONTAINER_ARCH ?= linux/arm64
 test-act:          ## Run the CI test workflow locally with act
 	$(ACT_CMD) -W $(ACT_WORKFLOW) -j $(ACT_JOB) --pull=$(ACT_PULL) --container-architecture $(ACT_CONTAINER_ARCH)
 
-.PHONY: usage install install-test install-lint clean publish lint start-postgres stop-postgres test test-act start-pg-and-test
+.PHONY: usage install install-test install-lint dist clean publish lint start-postgres stop-postgres test test-act start-pg-and-test
