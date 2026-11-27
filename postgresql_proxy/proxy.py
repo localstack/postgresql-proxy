@@ -52,6 +52,7 @@ class Proxy(object):
         plugins: dict[str, ModuleType],
         debug: bool = False,
         ssl_context: ssl.SSLContext | None = None,
+        ssl_negotiation_timeout: float | None = 5.0,
     ) -> None:
         self.plugins = plugins
         self.num_clients = 0
@@ -61,6 +62,9 @@ class Proxy(object):
         self.running = True
         self.sock = None
         self.ssl_context = ssl_context
+        # SSL negotiation blocks the selector thread, so this bounds how long a client
+        # that stops responding mid-negotiation can hold up every other connection
+        self.ssl_negotiation_timeout = ssl_negotiation_timeout
 
         # this is used to track leftover sockets
         self._debug = debug
@@ -146,7 +150,15 @@ class Proxy(object):
         # Check if SSL is enabled for this proxy
         if self.ssl_context:
             # Handle SSL negotiation - must happen before setblocking(False)
-            clientsocket = self._handle_ssl_negotiation(clientsocket, self.ssl_context)
+            try:
+                clientsocket = self._handle_ssl_negotiation(
+                    clientsocket, self.ssl_context
+                )
+            except OSError as e:
+                # an error escaping here would end the listen loop for every client
+                LOG.debug("SSL negotiation with %s failed: %s", address, e)
+                clientsocket.close()
+                return
 
         clientsocket.setblocking(False)
         self.num_clients += 1
@@ -206,6 +218,8 @@ class Proxy(object):
 
         Returns the SSL-wrapped socket if negotiation succeeds, or the original socket.
         """
+
+        client_socket.settimeout(self.ssl_negotiation_timeout)
 
         # Peek at the first 8 bytes to check for SSLRequest
         # Using MSG_PEEK so we don't consume the data if it's not SSLRequest

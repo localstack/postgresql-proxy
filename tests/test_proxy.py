@@ -4,6 +4,7 @@ import os
 import shutil
 import socket
 import ssl
+import struct
 import subprocess
 import tempfile
 import threading
@@ -144,6 +145,7 @@ def _run_proxy(
     *,
     plugins: dict | None = None,
     query_interceptors: list[dict] | None = None,
+    **proxy_kwargs,
 ) -> Generator[int, None, None]:
     """Start a proxy in a background thread and yield its listening port."""
     proxy_port = _get_free_tcp_port()
@@ -164,7 +166,13 @@ def _run_proxy(
     if not hasattr(instance.intercept.responses, "parameter_status"):
         instance.intercept.responses.parameter_status = []
 
-    proxy = Proxy(instance, plugins=plugins or {}, debug=True, ssl_context=ssl_context)
+    proxy = Proxy(
+        instance,
+        plugins=plugins or {},
+        debug=True,
+        ssl_context=ssl_context,
+        **proxy_kwargs,
+    )
     thread = threading.Thread(
         target=proxy.listen, kwargs={"max_connections": 32}, daemon=True
     )
@@ -190,13 +198,21 @@ def plain_proxy_port(postgres_settings):
         yield proxy_port
 
 
-@pytest.fixture()
-def ssl_proxy_port(postgres_settings):
+@contextlib.contextmanager
+def _run_ssl_proxy(postgres_settings, **proxy_kwargs) -> Generator[int, None, None]:
     with _temporary_server_cert_pair() as (cert_path, key_path):
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_context.load_cert_chain(certfile=cert_path, keyfile=key_path)
-        with _run_proxy(postgres_settings, ssl_context=ssl_context) as proxy_port:
+        with _run_proxy(
+            postgres_settings, ssl_context=ssl_context, **proxy_kwargs
+        ) as proxy_port:
             yield proxy_port
+
+
+@pytest.fixture()
+def ssl_proxy_port(postgres_settings):
+    with _run_ssl_proxy(postgres_settings) as proxy_port:
+        yield proxy_port
 
 
 @pytest.mark.timeout(20)
@@ -464,3 +480,69 @@ def test_non_utf8_client_encoding_query_text_through_proxy(
 
             cur.execute("SELECT 'olá'::text")
             assert cur.fetchone() == ("olá",)
+
+
+_SSL_REQUEST = struct.pack("!II", 8, 80877103)
+
+
+def _query_through_proxy(postgres_settings, port: int) -> None:
+    with psycopg2.connect(
+        host="127.0.0.1",
+        port=port,
+        user=postgres_settings["user"],
+        password=postgres_settings["password"],
+        dbname=postgres_settings["dbname"],
+        sslmode="require",
+        connect_timeout=3,
+    ) as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            assert cur.fetchone() == (1,)
+
+
+def _close_before_handshake(sock: socket.socket) -> None:
+    pass
+
+
+def _send_non_tls_bytes(sock: socket.socket) -> None:
+    sock.sendall(b"not a TLS ClientHello")
+
+
+def _reset_connection(sock: socket.socket) -> None:
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+
+
+@pytest.mark.timeout(20)
+@pytest.mark.parametrize(
+    "abandon",
+    [_close_before_handshake, _send_non_tls_bytes, _reset_connection],
+    ids=["close", "non-tls-bytes", "reset"],
+)
+def test_client_abandoning_ssl_negotiation_does_not_stop_proxy(
+    postgres_settings, ssl_proxy_port, abandon
+):
+    """A client that fails its SSL negotiation must not end the proxy's listen loop."""
+    with socket.create_connection(("127.0.0.1", ssl_proxy_port), timeout=3) as sock:
+        sock.sendall(_SSL_REQUEST)
+        assert sock.recv(1) == b"S"
+        abandon(sock)
+
+    _query_through_proxy(postgres_settings, ssl_proxy_port)
+
+
+@pytest.mark.timeout(20)
+@pytest.mark.parametrize(
+    "send_ssl_request", [False, True], ids=["silent", "silent-after-ssl-request"]
+)
+def test_stalled_client_does_not_block_other_clients(
+    postgres_settings, send_ssl_request
+):
+    """SSL negotiation runs on the selector thread, so a client that stops responding
+    may only hold up other clients until the negotiation timeout expires."""
+    with _run_ssl_proxy(postgres_settings, ssl_negotiation_timeout=0.5) as proxy_port:
+        with socket.create_connection(("127.0.0.1", proxy_port), timeout=3) as stalled:
+            if send_ssl_request:
+                stalled.sendall(_SSL_REQUEST)
+                assert stalled.recv(1) == b"S"
+
+            _query_through_proxy(postgres_settings, proxy_port)
